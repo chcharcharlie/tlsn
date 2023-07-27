@@ -25,6 +25,8 @@ tracing-subscriber.workspace = true
 
 hyper = { version = "0.14", features = ["client", "http1"] }
 
+bytes = "1.4.0"
+
 p256 = { workspace = true, features = ["ecdsa"] }
 webpki-roots.workspace = true
 
@@ -33,6 +35,10 @@ async-tls = { version = "0.12", default-features = false, features = [
 ] }
 
 serde_json = "1.0"
+
+[[example]]
+name = "jomo_fake_api"
+path = "jomo_fake_api.rs"
 
 [[example]]
 name = "twitter_dm"
