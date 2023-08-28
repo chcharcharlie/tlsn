@@ -9,10 +9,8 @@
 pub(crate) mod config;
 mod error;
 
-use std::{
-    pin::Pin,
-    time::{SystemTime, UNIX_EPOCH},
-};
+use std::pin::Pin;
+use web_time::{SystemTime, UNIX_EPOCH};
 
 use futures::{AsyncRead, AsyncWrite, Future, FutureExt, SinkExt, StreamExt, TryFutureExt};
 

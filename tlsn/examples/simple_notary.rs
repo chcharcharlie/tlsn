@@ -1,9 +1,10 @@
-/// This is a simple implementation of the notary server with minimal functionalities (without TLS, does not support WebSocket and configuration etc.)
-/// For a more functional notary server implementation, please use https://github.com/tlsnotary/notary-server
 use std::env;
 
-use tokio::net::TcpListener;
-use tokio_util::compat::TokioAsyncReadCompatExt;
+use {
+    async_tungstenite::{accept_async, tokio::TokioAdapter},
+    tokio::net::TcpListener,
+    ws_stream_tungstenite::*,
+};
 
 use tlsn_notary::{bind_notary, NotaryConfig};
 
@@ -16,7 +17,7 @@ async fn main() {
     // 127.0.0.1:8080 for connections.
     let addr = env::args()
         .nth(1)
-        .unwrap_or_else(|| "127.0.0.1:8080".to_string());
+        .unwrap_or_else(|| "127.0.0.1:61288".to_string());
 
     // Next up we create a TCP listener which will listen for incoming
     // connections. This TCP listener is bound to the address we determined
@@ -30,9 +31,14 @@ async fn main() {
 
     loop {
         // Asynchronously wait for an inbound socket.
-        let (socket, socket_addr) = listener.accept().await.unwrap();
+        let (tcp_stream, peer_addr) = listener.accept().await.unwrap();
 
-        println!("Accepted connection from: {}", socket_addr);
+        println!("Accepted connections from: {}", peer_addr);
+
+        let s = accept_async(TokioAdapter::new(tcp_stream))
+            .await
+            .expect("ws handshake");
+        let ws = WsStream::new(s);
 
         {
             let signing_key = signing_key.clone();
@@ -44,7 +50,7 @@ async fn main() {
                 let config = NotaryConfig::builder().id("example").build().unwrap();
 
                 // Bind the notary to the socket
-                let (notary, notary_fut) = bind_notary(config, socket.compat()).unwrap();
+                let (notary, notary_fut) = bind_notary(config, ws).unwrap();
 
                 // Run the notary
                 tokio::try_join!(

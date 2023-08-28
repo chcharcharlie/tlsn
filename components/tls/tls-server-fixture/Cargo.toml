@@ -16,4 +16,4 @@ rustls = { version = "0.21", features = ["logging"] }
 tokio-util = { workspace = true, features = ["compat", "io-util"] }
 tracing.workspace = true
 tokio.workspace = true
-
+web-time.workspace = true

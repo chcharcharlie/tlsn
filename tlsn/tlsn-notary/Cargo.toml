@@ -30,3 +30,4 @@ rand.workspace = true
 signature.workspace = true
 
 tracing = { workspace = true, optional = true }
+web-time.workspace = true

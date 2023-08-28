@@ -1,6 +1,6 @@
 use elliptic_curve::pkcs8::DecodePublicKey;
 use p256::ecdsa::{signature::Verifier, VerifyingKey};
-use std::time::{Duration, UNIX_EPOCH};
+use web_time::{Duration, UNIX_EPOCH};
 
 use mpz_core::serialize::CanonicalSerialize;
 use tls_core::{
