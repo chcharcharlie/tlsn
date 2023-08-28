@@ -25,16 +25,15 @@ tlsn-tls-client-async = { path = "../components/tls/tls-client-async" }
 tls-server-fixture = { path = "../components/tls/tls-server-fixture" }
 uid-mux = { path = "../components/uid-mux" }
 
-tlsn-utils = { git = "https://github.com/tlsnotary/tlsn-utils", rev = "8d8ffe1" }
-tlsn-utils-aio = { git = "https://github.com/tlsnotary/tlsn-utils", rev = "8d8ffe1" }
+tlsn-utils = { git = "https://github.com/chcharcharlie/tlsn-utils", branch = "jomo" }
+tlsn-utils-aio = { git = "https://github.com/chcharcharlie/tlsn-utils", branch = "jomo" }
 
-mpz-core = { git = "https://github.com/privacy-scaling-explorations/mpz", rev = "1f2c922" }
-mpz-circuits = { git = "https://github.com/privacy-scaling-explorations/mpz", rev = "1f2c922" }
-mpz-garble-core = { git = "https://github.com/privacy-scaling-explorations/mpz", rev = "1f2c922" }
-mpz-garble = { git = "https://github.com/privacy-scaling-explorations/mpz", rev = "1f2c922" }
-mpz-ot = { git = "https://github.com/privacy-scaling-explorations/mpz", rev = "1f2c922" }
-mpz-share-conversion = { git = "https://github.com/privacy-scaling-explorations/mpz", rev = "1f2c922" }
-
+mpz-core = { git = "https://github.com/chcharcharlie/mpz", branch = "jomo" }
+mpz-circuits = { git = "https://github.com/chcharcharlie/mpz", branch = "jomo" }
+mpz-garble-core = { git = "https://github.com/chcharcharlie/mpz", branch = "jomo" }
+mpz-garble = { git = "https://github.com/chcharcharlie/mpz", branch = "jomo" }
+mpz-ot = { git = "https://github.com/chcharcharlie/mpz", branch = "jomo" }
+mpz-share-conversion = { git = "https://github.com/chcharcharlie/mpz", branch = "jomo" }
 
 futures = "0.3"
 tokio-util = "0.7"
@@ -61,3 +60,7 @@ spansy = { git = "https://github.com/sinui0/spansy", rev = "becb33d" }
 tracing = "0.1"
 tracing-subscriber = "0.3"
 rstest = "0.17"
+
+# std::time for wasm
+# https://github.com/daxpedda/web-time/tree/main
+web-time = "0.2"

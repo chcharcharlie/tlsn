@@ -4,6 +4,29 @@ version = "0.0.0"
 edition = "2021"
 publish = false
 
+[dependencies]
+ws_stream_tungstenite = {version = "0.10", features = ["tokio_io"]}
+async-std = "1.12.0"
+async-tungstenite = {version="0.22", features = ["tokio-runtime", "async-std-runtime"]}
+asynchronous-codec = "0.6.2"
+tungstenite = "0.19"
+bytes = "1.4.0"
+ws_stream_wasm = {version = "0.7", features = ["tokio_io"]}
+url = "^2"
+
+[dependencies.web-sys]
+version = "0.3.22"
+features = [
+  "BinaryType",
+  "Blob",
+  "ErrorEvent",
+  "FileReader",
+  "MessageEvent",
+  "ProgressEvent",
+  "WebSocket",
+  "console",
+]
+
 [dev-dependencies]
 tlsn-prover = { workspace = true, features = ["tracing"] }
 tlsn-verifier.workspace = true
@@ -68,3 +91,7 @@ path = "discord/discord_dm.rs"
 [[example]]
 name = "discord_dm_verifier"
 path = "discord/discord_dm_verifier.rs"
+
+[[example]]
+name = "jomo_fake_api"
+path = "jomo_fake_api.rs"
