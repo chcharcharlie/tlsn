@@ -13,7 +13,7 @@ mod state;
 
 pub use config::ProverConfig;
 pub use error::ProverError;
-pub use state::{Initialized, Notarize, ProverState};
+pub use state::{Closed, Initialized, Notarize, ProverState, Setup};
 
 use futures::{
     future::FusedFuture, AsyncRead, AsyncWrite, Future, FutureExt, SinkExt, StreamExt, TryFutureExt,
@@ -42,83 +42,24 @@ use tlsn_core::{
     Direction, NotarizedSession, SessionData, SubstringsCommitment, SubstringsCommitmentSet,
 };
 use uid_mux::{yamux, UidYamux, UidYamuxControl};
-use utils_aio::{codec::BincodeMux, expect_msg_or_err, mux::MuxChannelSerde};
+use utils_aio::{codec::BincodeMux, expect_msg_or_err, mux::MuxChannel};
 
 use crate::error::OTShutdownError;
 
 #[cfg(feature = "tracing")]
 use tracing::{debug, debug_span, instrument, Instrument};
 
-/// Helper function to bind a new prover to the given sockets.
-///
-/// Returns a handle to the TLS connection, a future which returns the prover once the connection is
-/// closed, and a future which must be polled for the connection to the Notary to make progress.
-///
-/// # Arguments
-///
-/// * `config` - The configuration for the prover.
-/// * `client_socket` - The socket to the server.
-/// * `notary_socket` - The socket to the notary.
-#[allow(clippy::type_complexity)]
-#[cfg_attr(
-    feature = "tracing",
-    instrument(level = "info", skip(config, client_socket, notary_socket), err)
-)]
-pub async fn bind_prover<
-    S: AsyncWrite + AsyncRead + Send + Unpin + 'static,
-    T: AsyncWrite + AsyncRead + Send + Unpin + 'static,
->(
-    config: ProverConfig,
-    client_socket: S,
-    notary_socket: T,
-) -> Result<
-    (
-        TlsConnection,
-        ConnectionFuture<BincodeMux<UidYamuxControl>>,
-        MuxFuture,
-    ),
-    ProverError,
-> {
-    let mut mux = UidYamux::new(yamux::Config::default(), notary_socket, yamux::Mode::Client);
-    let mux_control = BincodeMux::new(mux.control());
+/// Bincode for serialization, multiplexing with Yamux.
+type Mux = BincodeMux<UidYamuxControl>;
 
-    let mut mux_fut = MuxFuture {
-        fut: Box::pin(async move { mux.run().await.map_err(ProverError::from) }),
-    };
-
-    let prover_fut = Prover::new(config, mux_control)?.bind_prover(client_socket);
-    let (conn, conn_fut) = futures::select! {
-        res = prover_fut.fuse() => res?,
-        _ = (&mut mux_fut).fuse() => return Err(std::io::Error::from(std::io::ErrorKind::UnexpectedEof))?,
-    };
-
-    Ok((conn, conn_fut, mux_fut))
-}
-
-/// Multiplexer future which must be polled to make progress.
-pub struct MuxFuture {
-    fut: Pin<Box<dyn Future<Output = Result<(), ProverError>> + Send + 'static>>,
-}
-
-impl Future for MuxFuture {
-    type Output = Result<(), ProverError>;
-
-    fn poll(
-        mut self: Pin<&mut Self>,
-        cx: &mut std::task::Context<'_>,
-    ) -> std::task::Poll<Self::Output> {
-        self.fut.as_mut().poll(cx)
-    }
-}
-
-/// TLS connection future which must be polled for the connection to make progress.
-pub struct ConnectionFuture<T> {
+/// Prover future which must be polled for the connection to make progress.
+pub struct ProverFuture {
     #[allow(clippy::type_complexity)]
-    fut: Pin<Box<dyn Future<Output = Result<Prover<Notarize<T>>, ProverError>> + Send + 'static>>,
+    fut: Pin<Box<dyn Future<Output = Result<Prover<Closed>, ProverError>> + Send + 'static>>,
 }
 
-impl<T> Future for ConnectionFuture<T> {
-    type Output = Result<Prover<Notarize<T>>, ProverError>;
+impl Future for ProverFuture {
+    type Output = Result<Prover<Closed>, ProverError>;
 
     fn poll(
         mut self: Pin<&mut Self>,
@@ -135,54 +76,94 @@ pub struct Prover<T: ProverState> {
     state: T,
 }
 
-impl<T> Prover<Initialized<T>>
-where
-    T: MuxChannelSerde + Clone + Send + Sync + Unpin + 'static,
-{
+impl Prover<Initialized> {
     /// Creates a new prover.
     ///
     /// # Arguments
     ///
     /// * `config` - The configuration for the prover.
-    /// * `notary_mux` - The multiplexed connection to the notary.
-    pub fn new(config: ProverConfig, notary_mux: T) -> Result<Self, ProverError> {
-        let server_name = ServerName::try_from(config.server_dns())?;
-
-        Ok(Self {
+    pub fn new(config: ProverConfig) -> Self {
+        Self {
             config,
-            state: Initialized {
-                server_name,
+            state: Initialized,
+        }
+    }
+
+    /// Set up the prover.
+    ///
+    /// This performs all MPC setup prior to establishing the connection to the
+    /// application server.
+    ///
+    /// # Arguments
+    ///
+    /// * `socket` - The socket to the notary.
+    pub async fn setup<S: AsyncWrite + AsyncRead + Send + Unpin + 'static>(
+        self,
+        socket: S,
+    ) -> Result<Prover<Setup>, ProverError> {
+        let mut mux = UidYamux::new(yamux::Config::default(), socket, yamux::Mode::Client);
+        let notary_mux = BincodeMux::new(mux.control());
+
+        let mut mux_fut = MuxFuture {
+            fut: Box::pin(async move { mux.run().await.map_err(ProverError::from) }.fuse()),
+        };
+
+        let mpc_setup_fut = setup_mpc_backend(&self.config, notary_mux.clone());
+        let (mpc_tls, vm, _, gf2, ot_fut) = futures::select! {
+            res = mpc_setup_fut.fuse() => res?,
+            _ = (&mut mux_fut).fuse() => return Err(std::io::Error::from(std::io::ErrorKind::UnexpectedEof))?,
+        };
+
+        Ok(Prover {
+            config: self.config,
+            state: Setup {
                 notary_mux,
+                mux_fut,
+                mpc_tls,
+                vm,
+                ot_fut,
+                gf2,
             },
         })
     }
+}
 
-    /// Binds the prover to the provided socket.
+impl Prover<Setup> {
+    /// Connects to the server using the provided socket.
+    ///
+    /// Returns a handle to the TLS connection, a future which returns the prover once the connection is
+    /// closed.
+    ///
+    /// # Arguments
+    ///
+    /// * `socket` - The socket to the server.
     #[cfg_attr(
         feature = "tracing",
         instrument(level = "debug", skip(self, socket), err)
     )]
-    pub async fn bind_prover<S: AsyncWrite + AsyncRead + Send + Unpin + 'static>(
+    pub async fn connect<S: AsyncWrite + AsyncRead + Send + Unpin + 'static>(
         self,
         socket: S,
-    ) -> Result<(TlsConnection, ConnectionFuture<T>), ProverError> {
-        let Initialized {
-            server_name,
-            notary_mux: mux,
+    ) -> Result<(TlsConnection, ProverFuture), ProverError> {
+        let Setup {
+            notary_mux,
+            mut mux_fut,
+            mpc_tls,
+            vm,
+            mut ot_fut,
+            gf2,
         } = self.state;
 
-        let (mpc_tls, vm, _, gf2, mut ot_fut) =
-            setup_mpc_backend(&self.config, mux.clone()).await?;
-
+        let server_name = ServerName::try_from(self.config.server_dns())?;
         let config = tls_client::ClientConfig::builder()
             .with_safe_defaults()
             .with_root_certificates(self.config.root_cert_store.clone())
             .with_no_client_auth();
         let client = ClientConnection::new(Arc::new(config), Box::new(mpc_tls), server_name)?;
 
-        let (conn, conn_fut) = bind_client(socket, client);
+        let (conn, conn_fut) = bind_client(socket.await, client);
 
-        let start_time = std::time::UNIX_EPOCH.elapsed().unwrap().as_secs();
+        let start_time = web_time::UNIX_EPOCH.elapsed().unwrap().as_secs();
 
         let fut = Box::pin({
             #[allow(clippy::let_and_return)]
@@ -194,6 +175,7 @@ where
                 } = futures::select! {
                     res = conn_fut.fuse() => res?,
                     _ = ot_fut => return Err(OTShutdownError)?,
+                    _ = mux_fut => return Err(std::io::Error::from(std::io::ErrorKind::UnexpectedEof))?,
                 };
 
                 // Extra guard to guarantee that the server sent a close_notify.
@@ -224,8 +206,9 @@ where
 
                 Ok(Prover {
                     config: self.config,
-                    state: Notarize {
-                        notary_mux: mux,
+                    state: Closed {
+                        notary_mux,
+                        mux_fut,
                         vm,
                         ot_fut,
                         gf2,
@@ -234,8 +217,6 @@ where
                         server_public_key,
                         transcript_tx: Transcript::new("tx", sent),
                         transcript_rx: Transcript::new("rx", recv),
-                        commitments: Vec::default(),
-                        substring_commitments: Vec::default(),
                     },
                 })
             };
@@ -244,14 +225,34 @@ where
             fut
         });
 
-        Ok((conn, ConnectionFuture { fut }))
+        Ok((conn, ProverFuture { fut }))
     }
 }
 
-impl<T> Prover<Notarize<T>>
-where
-    T: MuxChannelSerde + Clone + Send + Sync + Unpin + 'static,
-{
+impl Prover<Closed> {
+    /// Returns the transcript of the sent requests
+    pub fn sent_transcript(&self) -> &Transcript {
+        &self.state.transcript_tx
+    }
+
+    /// Returns the transcript of the received responses
+    pub fn recv_transcript(&self) -> &Transcript {
+        &self.state.transcript_rx
+    }
+
+    /// Starts notarization of the TLS session.
+    ///
+    /// If the verifier is a Notary, this function will transition the prover to the next state
+    /// where it can generate commitments to the transcript prior to finalization.
+    pub fn start_notarize(self) -> Prover<Notarize> {
+        Prover {
+            config: self.config,
+            state: self.state.into(),
+        }
+    }
+}
+
+impl Prover<Notarize> {
     /// Returns the transcript of the sent requests
     pub fn sent_transcript(&self) -> &Transcript {
         &self.state.transcript_tx
@@ -317,7 +318,8 @@ where
     #[cfg_attr(feature = "tracing", instrument(level = "info", skip(self), err))]
     pub async fn finalize(self) -> Result<NotarizedSession, ProverError> {
         let Notarize {
-            notary_mux: mut mux,
+            mut notary_mux,
+            mut mux_fut,
             mut vm,
             mut ot_fut,
             mut gf2,
@@ -334,7 +336,7 @@ where
         let merkle_root = merkle_tree.root();
 
         let notarize_fut = async move {
-            let mut channel = mux.get_channel("notarize").await?;
+            let mut channel = notary_mux.get_channel("notarize").await?;
 
             channel
                 .send(TlsnMessage::TranscriptCommitmentRoot(merkle_root))
@@ -356,8 +358,9 @@ where
         };
 
         let (notary_encoder_seed, SignedSessionHeader { header, signature }) = futures::select! {
-            _ = ot_fut => return Err(OTShutdownError)?,
             res = notarize_fut.fuse() => res?,
+            _ = ot_fut => return Err(OTShutdownError)?,
+            _ = mux_fut => return Err(std::io::Error::from(std::io::ErrorKind::UnexpectedEof))?,
         };
 
         // Check the header is consistent with the Prover's view
@@ -385,16 +388,16 @@ where
 
 #[cfg_attr(feature = "tracing", instrument(level = "debug", skip_all, err))]
 #[allow(clippy::type_complexity)]
-async fn setup_mpc_backend<M: MuxChannelSerde + Clone + Send + 'static>(
+async fn setup_mpc_backend(
     config: &ProverConfig,
-    mut mux: M,
+    mut mux: Mux,
 ) -> Result<
     (
         MpcTlsLeader,
         DEAPVm<SharedSender, SharedReceiver>,
         SharedReceiver,
         ff::ConverterSender<ff::Gf2_128, SharedSender>,
-        Pin<Box<dyn FusedFuture<Output = Result<(), ProverError>> + Send + 'static>>,
+        OTFuture,
     ),
     ProverError,
 > {
@@ -437,17 +440,19 @@ async fn setup_mpc_backend<M: MuxChannelSerde + Clone + Send + 'static>(
     #[cfg(feature = "tracing")]
     debug!("OT setup complete");
 
-    let ot_fut = Box::pin(
-        async move {
-            futures::try_join!(
-                ot_sender_actor.run().map_err(ProverError::from),
-                ot_receiver_actor.run().map_err(ProverError::from)
-            )?;
+    let ot_fut = OTFuture {
+        fut: Box::pin(
+            async move {
+                futures::try_join!(
+                    ot_sender_actor.run().map_err(ProverError::from),
+                    ot_receiver_actor.run().map_err(ProverError::from)
+                )?;
 
-            Ok(())
-        }
-        .fuse(),
-    );
+                Ok(())
+            }
+            .fuse(),
+        ),
+    };
 
     let mut vm = DEAPVm::new(
         "vm",
@@ -489,10 +494,54 @@ async fn setup_mpc_backend<M: MuxChannelSerde + Clone + Send + 'static>(
     .map_err(|e| ProverError::MpcError(Box::new(e)))?;
 
     let channel = mux.get_channel(mpc_tls_config.common().id()).await?;
-    let mpc_tls = MpcTlsLeader::new(mpc_tls_config, channel, ke, prf, encrypter, decrypter);
+    let mut mpc_tls = MpcTlsLeader::new(mpc_tls_config, channel, ke, prf, encrypter, decrypter);
+
+    mpc_tls.setup().await?;
 
     #[cfg(feature = "tracing")]
     debug!("MPC backend setup complete");
 
     Ok((mpc_tls, vm, ot_recv, gf2, ot_fut))
+}
+
+struct MuxFuture {
+    fut: Pin<Box<dyn FusedFuture<Output = Result<(), ProverError>> + Send + 'static>>,
+}
+
+impl Future for MuxFuture {
+    type Output = Result<(), ProverError>;
+
+    fn poll(
+        mut self: Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<Self::Output> {
+        self.fut.as_mut().poll(cx)
+    }
+}
+
+impl FusedFuture for MuxFuture {
+    fn is_terminated(&self) -> bool {
+        self.fut.is_terminated()
+    }
+}
+
+struct OTFuture {
+    fut: Pin<Box<dyn FusedFuture<Output = Result<(), ProverError>> + Send + 'static>>,
+}
+
+impl Future for OTFuture {
+    type Output = Result<(), ProverError>;
+
+    fn poll(
+        mut self: Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<Self::Output> {
+        self.fut.as_mut().poll(cx)
+    }
+}
+
+impl FusedFuture for OTFuture {
+    fn is_terminated(&self) -> bool {
+        self.fut.is_terminated()
+    }
 }

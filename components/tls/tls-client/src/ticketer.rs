@@ -1,4 +1,4 @@
-use std::time;
+use web_time as time;
 
 /// The timebase for expiring and rolling tickets and ticketing
 /// keys.  This is UNIX wall time in seconds.
