@@ -161,7 +161,7 @@ impl Prover<Setup> {
             .with_no_client_auth();
         let client = ClientConnection::new(Arc::new(config), Box::new(mpc_tls), server_name)?;
 
-        let (conn, conn_fut) = bind_client(socket.await, client);
+        let (conn, conn_fut) = bind_client(socket, client);
 
         let start_time = web_time::UNIX_EPOCH.elapsed().unwrap().as_secs();
 
