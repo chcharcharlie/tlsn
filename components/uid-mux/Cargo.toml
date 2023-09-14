@@ -12,7 +12,6 @@ edition = "2021"
 tracing = ["dep:tracing"]
 
 [dependencies]
-# tlsn-utils-aio = { git = "https://github.com/tlsnotary/tlsn-utils", rev = "f3e3f07" }
 tlsn-utils-aio = { git = "https://github.com/chcharcharlie/tlsn-utils", branch = "jomo" }
 
 async-trait = "0.1"

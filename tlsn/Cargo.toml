@@ -22,7 +22,6 @@ uid-mux = { path = "../components/uid-mux" }
 
 tlsn-utils = { git = "https://github.com/chcharcharlie/tlsn-utils", branch = "jomo" }
 tlsn-utils-aio = { git = "https://github.com/chcharcharlie/tlsn-utils", branch = "jomo" }
-
 mpz-core = { git = "https://github.com/chcharcharlie/mpz", branch = "jomo" }
 mpz-circuits = { git = "https://github.com/chcharcharlie/mpz", branch = "jomo" }
 mpz-garble-core = { git = "https://github.com/chcharcharlie/mpz", branch = "jomo" }

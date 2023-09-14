@@ -17,15 +17,10 @@ tracing = ["dep:tracing", "tlsn-point-addition/tracing"]
 mock = []
 
 [dependencies]
-# mpz-garble = { git = "https://github.com/privacy-scaling-explorations/mpz", rev = "a1ac9c5" }
-# mpz-ot = { git = "https://github.com/privacy-scaling-explorations/mpz", rev = "a1ac9c5" }
-# mpz-circuits = { git = "https://github.com/privacy-scaling-explorations/mpz", rev = "a1ac9c5" }
 mpz-garble = { git = "https://github.com/chcharcharlie/mpz", branch = "jomo" }
 mpz-ot = { git = "https://github.com/chcharcharlie/mpz", branch = "jomo" }
 mpz-circuits = { git = "https://github.com/chcharcharlie/mpz", branch = "jomo" }
-# tlsn-utils-aio = { git = "https://github.com/tlsnotary/tlsn-utils", rev = "f3e3f07" }
 tlsn-utils-aio = { git = "https://github.com/chcharcharlie/tlsn-utils", branch = "jomo" }
-# mpz-share-conversion-core = { git = "https://github.com/privacy-scaling-explorations/mpz", rev = "a1ac9c5" }
 mpz-share-conversion-core = { git = "https://github.com/chcharcharlie/mpz", branch = "jomo" }
 tlsn-point-addition = { path = "../point-addition" }
 p256 = { version = "0.13", features = ["ecdh"] }
