@@ -1,3 +1,3 @@
 #/bin/sh
 
-cargo run --release --example simple_notary
+RUST_LOG=debug,yamux=debug cargo run --release --example notary

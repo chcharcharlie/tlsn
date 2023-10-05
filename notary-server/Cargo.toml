@@ -33,10 +33,6 @@ async-tls = { version = "0.12", default-features = false, features = [
 
 tlsn-notary = { git = "https://github.com/chcharcharlie/tlsn", branch="jomo" }
 
-[patch.'https://github.com/chcharcharlie/tlsn-utils']
-tlsn-utils = { git = 'https://www.github.com/tlsnotary/tlsn-utils.git', rev = "b182066" }
-tlsn-utils-aio = { git = 'https://www.github.com/tlsnotary/tlsn-utils.git', rev = "b182066" }
-
 [[example]]
-name = "simple_notary"
+name = "notary"
 path = "src/main.rs"

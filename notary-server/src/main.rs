@@ -47,6 +47,7 @@ async fn main() {
     loop {
         // Asynchronously wait for an inbound socket.
         let (tcp_stream, peer_addr) = listener.accept().await.unwrap();
+
         println!("Accepted connections from: {}", peer_addr);
 
         // Load the private key and cert needed for TLS connection from fixture folder — can be swapped out when we stop using static self signed cert
