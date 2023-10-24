@@ -1,4 +1,4 @@
-use std::time::{Duration, UNIX_EPOCH};
+use web_time::{Duration, UNIX_EPOCH};
 
 use serde::{Deserialize, Serialize};
 
@@ -134,8 +134,8 @@ mod tests {
     use rstest::*;
 
     use crate::fixtures::cert::{appliedzkp, tlsnotary, TestData};
-    use std::time::SystemTime;
     use tls_core::{dns::ServerName, key::Certificate};
+    use web_time::SystemTime;
 
     /// Expect chain verification to succeed
     #[rstest]
