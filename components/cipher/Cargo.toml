@@ -4,9 +4,9 @@ resolver = "2"
 
 [workspace.dependencies]
 # tlsn
-mpz-circuits = { git = "https://github.com/privacy-scaling-explorations/mpz", rev = "7669232" }
-mpz-garble = { git = "https://github.com/privacy-scaling-explorations/mpz", rev = "7669232" }
-tlsn-utils = { git = "https://github.com/tlsnotary/tlsn-utils", rev = "8d8ffe1" }
+mpz-circuits = { git = "https://github.com/chcharcharlie/mpz", branch = "jomo" }
+mpz-garble = { git = "https://github.com/chcharcharlie/mpz", branch = "jomo" }
+tlsn-utils = { git = "https://github.com/chcharcharlie/tlsn-utils", branch = "jomo" }
 
 # crypto
 aes = "0.8"
@@ -28,3 +28,7 @@ tracing = "0.1"
 
 # misc
 derive_builder = "0.12"
+
+# std::time for wasm
+# https://github.com/daxpedda/web-time/tree/main
+web-time = "0.2"

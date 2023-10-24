@@ -39,12 +39,22 @@ The notary server will now be running in the background waiting for connections.
 
 For more information on how to configure the notary server, please refer to [this](../../../notary-server/README.md#running-the-server).
 
+## Start websockify server
+```sh
+docker run -it --rm -p 61289:80 novnc/websockify 80 jomo.id:443
+```
+
+## Start websockify server
+```sh
+docker run -it --rm -p 61289:80 novnc/websockify 80 jomo.id:443
+```
+
 ## Notarize
 
 In this tlsn/examples/twitter folder, run the following command:
 
 ```sh
-RUST_LOG=debug,yamux=info cargo run --release --example twitter_dm
+RUST_LOG=debug,yamux=info cargo run --release --example jomo_fake_api
 ```
 
 If everything goes well, you should see output similar to the following:
