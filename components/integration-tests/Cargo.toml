@@ -1,12 +1,8 @@
 [package]
 name = "integration-tests"
-authors = ["TLSNotary Team"]
-description = "Integration tests for TLSNotary"
-keywords = ["tls", "mpc", "2pc", "test"]
-categories = ["cryptography"]
-license = "MIT OR Apache-2.0"
-version = "0.1.0"
+version = "0.0.0"
 edition = "2021"
+publish = false
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
@@ -27,7 +23,6 @@ tlsn-aead = { path = "../aead" }
 tlsn-key-exchange = { path = "../key-exchange" }
 tlsn-point-addition = { path = "../point-addition" }
 tlsn-hmac-sha256 = { path = "../prf/hmac-sha256" }
-# tlsn-utils-aio = { git = "https://github.com/tlsnotary/tlsn-utils", rev = "f3e3f07" }
 tlsn-utils-aio = { git = "https://github.com/chcharcharlie/tlsn-utils", branch = "jomo" }
 
 uid-mux = { path = "../uid-mux" }

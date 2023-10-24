@@ -5,13 +5,12 @@ description = "Core types for TLSNotary"
 keywords = ["tls", "mpc", "2pc", "types"]
 categories = ["cryptography"]
 license = "MIT OR Apache-2.0"
-version = "0.1.0"
+version = "0.1.0-alpha.2"
 edition = "2021"
 
 [features]
 default = []
 fixtures = ["dep:hex"]
-tracing = ["dep:tracing"]
 
 [dependencies]
 tlsn-tls-core = { workspace = true, features = ["serde"] }
@@ -30,6 +29,9 @@ rs_merkle.workspace = true
 rstest = { workspace = true, optional = true }
 hex = { workspace = true, optional = true }
 bytes = { workspace = true, features = ["serde"] }
+opaque-debug.workspace = true
+
+bimap = { version = "0.6.3", features = ["serde"] }
 tracing = { workspace = true, optional = true }
 web-time.workspace = true
 

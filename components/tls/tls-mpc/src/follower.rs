@@ -85,7 +85,7 @@ impl MpcTlsFollower {
     }
 
     /// Performs any one-time setup operations.
-    async fn setup(&mut self) -> Result<(), MpcTlsError> {
+    pub async fn setup(&mut self) -> Result<(), MpcTlsError> {
         self.prf.setup().await?;
 
         Ok(())

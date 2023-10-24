@@ -1,19 +1,15 @@
 [package]
 name = "tests-integration"
-authors = ["TLSNotary Team"]
-description = "Integration tests for TLSNotary"
-keywords = ["tls", "mpc", "2pc", "test"]
-categories = ["cryptography"]
-license = "MIT OR Apache-2.0"
-version = "0.1.0"
+version = "0.0.0"
 edition = "2021"
 publish = false
 
 [dev-dependencies]
+tlsn-core.workspace = true
 tlsn-tls-core.workspace = true
-tlsn-prover.workspace = true
-tlsn-notary.workspace = true
-tls-server-fixture.workspace = true
+tlsn-prover = { workspace = true, features = ["tracing", "formats"] }
+tlsn-verifier = { workspace = true, features = ["tracing"] }
+tlsn-server-fixture.workspace = true
 
 p256 = { workspace = true, features = ["ecdsa"] }
 hyper = { workspace = true, features = ["client", "http1"] }
@@ -24,3 +20,6 @@ tokio-util.workspace = true
 
 tracing.workspace = true
 tracing-subscriber.workspace = true
+
+serde_json = "1.0"
+bincode = "*"
