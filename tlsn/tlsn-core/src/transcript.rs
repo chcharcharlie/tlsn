@@ -51,6 +51,7 @@ pub struct RedactedTranscript {
     auth: RangeSet<usize>,
     /// Ranges of `data` which have been redacted
     redacted: RangeSet<usize>,
+    slices: Vec<TranscriptSlice>,
 }
 
 impl RedactedTranscript {
@@ -65,9 +66,11 @@ impl RedactedTranscript {
     pub fn new(len: usize, slices: Vec<TranscriptSlice>) -> Self {
         let mut data = vec![0u8; len];
         let mut auth = RangeSet::default();
+        let mut raw_slices: Vec<TranscriptSlice> = vec![];
         for slice in slices {
             data[slice.range()].copy_from_slice(slice.data());
             auth = auth.union(&slice.range());
+            raw_slices.push(slice.clone());
         }
         let redacted = RangeSet::from(0..len).difference(&auth);
 
@@ -75,6 +78,7 @@ impl RedactedTranscript {
             data,
             auth,
             redacted,
+            slices: raw_slices,
         }
     }
 
@@ -96,6 +100,11 @@ impl RedactedTranscript {
     /// Returns all the ranges of data which have been redacted.
     pub fn redacted(&self) -> &RangeSet<usize> {
         &self.redacted
+    }
+
+    /// Returns all the raw slices.
+    pub fn slices(&self) -> &Vec<TranscriptSlice> {
+        &self.slices
     }
 
     /// Sets all bytes in the transcript which were redacted.
