@@ -10,7 +10,7 @@ use tokio::{fs::File, net::TcpListener};
 use tokio_rustls::TlsAcceptor;
 use ws_stream_tungstenite::*;
 
-const NOTARY_SIGNING_KEY_PATH: &str = "../../../notary-server/fixture/notary/notary.key";
+const NOTARY_SIGNING_KEY_PATH: &str = "fixture/notary/notary.key";
 
 #[tokio::main]
 async fn main() {
@@ -41,21 +41,21 @@ async fn main() {
 
         println!("Accepted connections from: {}", peer_addr);
 
-        // // Load the private key and cert needed for TLS connection from fixture folder — can be swapped out when we stop using static self signed cert
-        // let (tls_private_key, tls_certificates) = load_tls_key_and_cert().await.unwrap();
-        // // Build a TCP listener with TLS enabled
-        // let mut server_config = ServerConfig::builder()
-        //     .with_safe_defaults()
-        //     .with_no_client_auth()
-        //     .with_single_cert(tls_certificates, tls_private_key)
-        //     .map_err(|err| eyre!("Failed to instantiate notary server tls config: {err}"))
-        //     .unwrap();
+        // Load the private key and cert needed for TLS connection from fixture folder — can be swapped out when we stop using static self signed cert
+        let (tls_private_key, tls_certificates) = load_tls_key_and_cert().await.unwrap();
+        // Build a TCP listener with TLS enabled
+        let mut server_config = ServerConfig::builder()
+            .with_safe_defaults()
+            .with_no_client_auth()
+            .with_single_cert(tls_certificates, tls_private_key)
+            .map_err(|err| eyre!("Failed to instantiate notary server tls config: {err}"))
+            .unwrap();
 
-        // // Set the http protocols we support
-        // server_config.alpn_protocols = vec![b"http/1.1".to_vec()];
-        // let tls_config = Arc::new(server_config);
-        // let acceptor = TlsAcceptor::from(tls_config);
-        // let tcp_stream = acceptor.accept(tcp_stream).await.unwrap();
+        // Set the http protocols we support
+        server_config.alpn_protocols = vec![b"http/1.1".to_vec()];
+        let tls_config = Arc::new(server_config);
+        let acceptor = TlsAcceptor::from(tls_config);
+        let tcp_stream = acceptor.accept(tcp_stream).await.unwrap();
 
         let s = accept_async(TokioAdapter::new(tcp_stream))
             .await
