@@ -208,7 +208,11 @@ impl MpcTlsFollower {
         self.encrypter.encrypt_blind(typ, seq, len).await
     }
 
-    async fn handle_decrypt_msg(&mut self, msg: DecryptMessage) -> Result<(), MpcTlsError> {
+    async fn handle_decrypt_msg(
+        &mut self,
+        msg: DecryptMessage,
+        decrypted: bool,
+    ) -> Result<(), MpcTlsError> {
         let DecryptMessage {
             typ,
             explicit_nonce,
@@ -227,9 +231,16 @@ impl MpcTlsFollower {
 
         match typ {
             ContentType::ApplicationData => {
-                self.decrypter
+                let bytes = self
+                    .decrypter
                     .decrypt_blind(typ, explicit_nonce, ciphertext, seq)
-                    .await
+                    .await;
+
+                if decrypted {
+                    self.closed = true;
+                }
+
+                bytes
             }
             ContentType::Alert => {
                 let bytes = self
@@ -271,6 +282,8 @@ impl MpcTlsFollower {
         self.run_client_finished().await?;
         self.run_server_finished().await?;
 
+        let mut decrypted = false;
+
         loop {
             let msg = match self.channel.next().await {
                 Some(msg) => msg?,
@@ -282,7 +295,8 @@ impl MpcTlsFollower {
                     self.handle_encrypt_msg(msg).await?;
                 }
                 MpcTlsMessage::DecryptMessage(msg) => {
-                    self.handle_decrypt_msg(msg).await?;
+                    self.handle_decrypt_msg(msg, decrypted).await?;
+                    decrypted = true;
                 }
                 MpcTlsMessage::SendCloseNotify(msg) => {
                     self.handle_close_notify(msg).await?;

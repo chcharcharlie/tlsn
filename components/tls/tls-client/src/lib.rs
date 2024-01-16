@@ -314,6 +314,7 @@ mod log {
 pub extern crate tls_core;
 
 pub(crate) use tls_core::anchors;
+/// public backend
 pub mod backend;
 mod cipher;
 mod conn;
