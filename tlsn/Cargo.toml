@@ -1,22 +1,25 @@
 [workspace]
 members = [
     "tlsn-core",
+    "tlsn-common",
     "tlsn-verifier",
     "tlsn-prover",
-    "tlsn-formats",
+    #    "tlsn-formats",
     "tlsn-server-fixture",
     "tests-integration",
     "examples",
+    "benches",
 ]
 resolver = "2"
 
 [workspace.dependencies]
 tlsn-core = { path = "tlsn-core" }
+tlsn-common = { path = "tlsn-common" }
 tlsn-prover = { path = "tlsn-prover" }
 tlsn-verifier = { path = "tlsn-verifier" }
 tlsn-server-fixture = { path = "tlsn-server-fixture" }
 
-tlsn-formats = { path = "tlsn-formats" }
+#tlsn-formats = { path = "tlsn-formats" }
 
 tlsn-tls-core = { path = "../components/tls/tls-core" }
 tlsn-tls-mpc = { path = "../components/tls/tls-mpc" }
@@ -47,7 +50,7 @@ rs_merkle = "1"
 rand_chacha = "0.3"
 rand = "0.8"
 rand_core = "0.6"
-webpki-roots = "0.23"
+webpki-roots = "0.26"
 
 derive_builder = "0.12"
 thiserror = "1"

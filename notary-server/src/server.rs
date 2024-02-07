@@ -28,7 +28,7 @@ use tower::MakeService;
 use tracing::{debug, error, info};
 
 use crate::{
-    config::{NotaryServerProperties, NotarySignatureProperties},
+    config::{NotaryServerProperties, NotarySigningKeyProperties},
     domain::{
         auth::{authorization_whitelist_vec_into_hashmap, AuthorizationWhitelistRecord},
         notary::NotaryGlobals,
@@ -44,7 +44,7 @@ use crate::{
 #[tracing::instrument(skip(config))]
 pub async fn run_server(config: &NotaryServerProperties) -> Result<(), NotaryServerError> {
     // Load the private key for notarized transcript signing
-    let notary_signing_key = load_notary_signing_key(&config.notary_signature).await?;
+    let notary_signing_key = load_notary_signing_key(&config.notary_key).await?;
     // Build TLS acceptor if it is turned on
     let tls_acceptor = if !config.tls.enabled {
         debug!("Skipping TLS setup as it is turned off.");
@@ -105,9 +105,12 @@ pub async fn run_server(config: &NotaryServerProperties) -> Result<(), NotarySer
     );
 
     // Parameters needed for the info endpoint
-    let public_key = std::fs::read_to_string(&config.notary_signature.public_key_pem_path)
+    let public_key = std::fs::read_to_string(&config.notary_key.public_key_pem_path)
         .map_err(|err| eyre!("Failed to load notary public signing key for notarization: {err}"))?;
     let version = env!("CARGO_PKG_VERSION").to_string();
+    let git_commit_hash = env!("GIT_COMMIT_HASH").to_string();
+    let git_commit_timestamp = env!("GIT_COMMIT_TIMESTAMP").to_string();
+
     let router = Router::new()
         .route(
             "/healthcheck",
@@ -121,6 +124,8 @@ pub async fn run_server(config: &NotaryServerProperties) -> Result<(), NotarySer
                     Json(InfoResponse {
                         version,
                         public_key,
+                        git_commit_hash,
+                        git_commit_timestamp,
                     }),
                 )
                     .into_response()
@@ -202,7 +207,7 @@ pub async fn run_server(config: &NotaryServerProperties) -> Result<(), NotarySer
 }
 
 /// Temporary function to load notary signing key from static file
-async fn load_notary_signing_key(config: &NotarySignatureProperties) -> Result<SigningKey> {
+async fn load_notary_signing_key(config: &NotarySigningKeyProperties) -> Result<SigningKey> {
     debug!("Loading notary server's signing key");
 
     let notary_signing_key = SigningKey::read_pkcs8_pem_file(&config.private_key_pem_path)
@@ -258,7 +263,7 @@ mod test {
 
     #[tokio::test]
     async fn test_load_notary_signing_key() {
-        let config = NotarySignatureProperties {
+        let config = NotarySigningKeyProperties {
             private_key_pem_path: "./fixture/notary/notary.key".to_string(),
             public_key_pem_path: "./fixture/notary/notary.pub".to_string(),
         };

@@ -23,7 +23,7 @@ sct = "=0.7.0"
 digest = "0.10"
 webpki = "=0.22.1"
 webpki-roots = "0.24"
-ring = "0.16"
+ring = "0.17"
 p256 = "0.13"
 rustls-pemfile = "1"
 rustls = "0.20"
@@ -52,5 +52,5 @@ rstest = "0.12"
 
 # misc
 derive_builder = "0.12"
-
+enum-try-as-inner = "0.1"
 web-time = "0.2"

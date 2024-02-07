@@ -5,7 +5,9 @@
 #![deny(clippy::all)]
 #![forbid(unsafe_code)]
 
-use std::any::Any;
+mod notify;
+
+pub use notify::{BackendNotifier, BackendNotify};
 
 use async_trait::async_trait;
 use tls_core::{
@@ -68,11 +70,6 @@ pub enum DecryptMode {
 /// and decryption.
 #[async_trait]
 pub trait Backend: Send {
-    /// Returns reference to `Any` trait object.
-    fn as_any(&self) -> &dyn Any;
-    /// Returns mutable reference to `Any` trait object.
-    fn as_any_mut(&mut self) -> &mut dyn Any;
-
     /// Signals selected protocol version to implementor.
     /// Throws error if version is not supported.
     async fn set_protocol_version(&mut self, version: ProtocolVersion) -> Result<(), BackendError>;
@@ -94,17 +91,23 @@ pub trait Backend: Send {
     /// Sets server keyshare.
     async fn set_server_key_share(&mut self, key: PublicKey) -> Result<(), BackendError>;
     /// Sets the server cert chain
-    fn set_server_cert_details(&mut self, cert_details: ServerCertDetails);
+    async fn set_server_cert_details(
+        &mut self,
+        cert_details: ServerCertDetails,
+    ) -> Result<(), BackendError>;
     /// Sets the server kx details
-    fn set_server_kx_details(&mut self, kx_details: ServerKxDetails);
+    async fn set_server_kx_details(
+        &mut self,
+        kx_details: ServerKxDetails,
+    ) -> Result<(), BackendError>;
     /// Sets handshake hash at ClientKeyExchange for EMS.
-    async fn set_hs_hash_client_key_exchange(&mut self, hash: &[u8]) -> Result<(), BackendError>;
+    async fn set_hs_hash_client_key_exchange(&mut self, hash: Vec<u8>) -> Result<(), BackendError>;
     /// Sets handshake hash at ServerHello.
-    async fn set_hs_hash_server_hello(&mut self, hash: &[u8]) -> Result<(), BackendError>;
+    async fn set_hs_hash_server_hello(&mut self, hash: Vec<u8>) -> Result<(), BackendError>;
     /// Returns expected ServerFinished verify_data.
-    async fn get_server_finished_vd(&mut self, hash: &[u8]) -> Result<Vec<u8>, BackendError>;
+    async fn get_server_finished_vd(&mut self, hash: Vec<u8>) -> Result<Vec<u8>, BackendError>;
     /// Returns ClientFinished verify_data.
-    async fn get_client_finished_vd(&mut self, hash: &[u8]) -> Result<Vec<u8>, BackendError>;
+    async fn get_client_finished_vd(&mut self, hash: Vec<u8>) -> Result<Vec<u8>, BackendError>;
     /// Prepares the backend for encryption.
     async fn prepare_encryption(&mut self) -> Result<(), BackendError>;
     /// Perform the encryption over the concerned TLS message.
@@ -113,4 +116,19 @@ pub trait Backend: Send {
     /// Perform the decryption over the concerned TLS message.
     async fn decrypt(&mut self, msg: OpaqueMessage, seq: u64)
         -> Result<PlainMessage, BackendError>;
+    /// Buffer incoming message for decryption.
+    async fn buffer_incoming(&mut self, msg: OpaqueMessage) -> Result<(), BackendError>;
+    /// Returns next incoming message ready for decryption.
+    async fn next_incoming(&mut self) -> Result<Option<OpaqueMessage>, BackendError>;
+    /// Returns a notification future which resolves when the backend is ready to process
+    /// the next message.
+    async fn get_notify(&mut self) -> Result<BackendNotify, BackendError> {
+        Ok(BackendNotify::dummy())
+    }
+    /// Returns the number of messages buffered for decryption.
+    async fn buffer_len(&mut self) -> Result<usize, BackendError>;
+    /// Signals to the backend that the server has closed the connection.
+    async fn server_closed(&mut self) -> Result<(), BackendError> {
+        Ok(())
+    }
 }

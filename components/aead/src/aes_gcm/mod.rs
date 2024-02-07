@@ -163,6 +163,27 @@ impl MpcAesGcm {
 
         Ok(tag)
     }
+
+    /// Splits off the tag from the end of the payload and verifies it.
+    async fn _verify_tag(
+        &mut self,
+        explicit_nonce: Vec<u8>,
+        payload: &mut Vec<u8>,
+        aad: Vec<u8>,
+    ) -> Result<(), AeadError> {
+        let purported_tag = payload.split_off(payload.len() - AES_GCM_TAG_LEN);
+
+        let tag = self
+            .compute_tag(explicit_nonce, payload.clone(), aad)
+            .await?;
+
+        // Reject if tag is incorrect.
+        if tag != purported_tag {
+            return Err(AeadError::CorruptedTag);
+        }
+
+        Ok(())
+    }
 }
 
 #[async_trait]
@@ -180,11 +201,30 @@ impl Aead for MpcAesGcm {
         Ok(())
     }
 
+    #[cfg_attr(feature = "tracing", tracing::instrument(level = "info", err))]
+    async fn decode_key_private(&mut self) -> Result<(), AeadError> {
+        self.aes_ctr
+            .decode_key_private()
+            .await
+            .map_err(AeadError::from)
+    }
+
+    #[cfg_attr(feature = "tracing", tracing::instrument(level = "info", err))]
+    async fn decode_key_blind(&mut self) -> Result<(), AeadError> {
+        self.aes_ctr
+            .decode_key_blind()
+            .await
+            .map_err(AeadError::from)
+    }
+
     fn set_transcript_id(&mut self, id: &str) {
         self.aes_ctr.set_transcript_id(id)
     }
 
-    #[cfg_attr(feature = "tracing", tracing::instrument(level = "trace", err, ret))]
+    #[cfg_attr(
+        feature = "tracing",
+        tracing::instrument(level = "trace", skip(plaintext), err)
+    )]
     async fn encrypt_public(
         &mut self,
         explicit_nonce: Vec<u8>,
@@ -206,7 +246,10 @@ impl Aead for MpcAesGcm {
         Ok(payload)
     }
 
-    #[cfg_attr(feature = "tracing", tracing::instrument(level = "trace", err, ret))]
+    #[cfg_attr(
+        feature = "tracing",
+        tracing::instrument(level = "trace", skip(plaintext), err)
+    )]
     async fn encrypt_private(
         &mut self,
         explicit_nonce: Vec<u8>,
@@ -228,7 +271,7 @@ impl Aead for MpcAesGcm {
         Ok(payload)
     }
 
-    #[cfg_attr(feature = "tracing", tracing::instrument(level = "trace", err, ret))]
+    #[cfg_attr(feature = "tracing", tracing::instrument(level = "trace", err))]
     async fn encrypt_blind(
         &mut self,
         explicit_nonce: Vec<u8>,
@@ -250,74 +293,135 @@ impl Aead for MpcAesGcm {
         Ok(payload)
     }
 
-    #[cfg_attr(feature = "tracing", tracing::instrument(level = "trace", err, ret))]
+    #[cfg_attr(
+        feature = "tracing",
+        tracing::instrument(level = "trace", skip(payload), err)
+    )]
     async fn decrypt_public(
         &mut self,
         explicit_nonce: Vec<u8>,
-        mut ciphertext: Vec<u8>,
+        mut payload: Vec<u8>,
         aad: Vec<u8>,
     ) -> Result<Vec<u8>, AeadError> {
-        let purported_tag = ciphertext.split_off(ciphertext.len() - AES_GCM_TAG_LEN);
-
-        let tag = self
-            .compute_tag(explicit_nonce.clone(), ciphertext.clone(), aad)
+        self._verify_tag(explicit_nonce.clone(), &mut payload, aad)
             .await?;
 
-        // Reject if tag is incorrect
-        if tag != purported_tag {
-            return Err(AeadError::CorruptedTag);
-        }
-
         self.aes_ctr
-            .decrypt_public(explicit_nonce, ciphertext)
+            .decrypt_public(explicit_nonce, payload)
             .map_err(AeadError::from)
             .await
     }
 
-    #[cfg_attr(feature = "tracing", tracing::instrument(level = "trace", err, ret))]
+    #[cfg_attr(
+        feature = "tracing",
+        tracing::instrument(level = "trace", skip(payload), err)
+    )]
     async fn decrypt_private(
         &mut self,
         explicit_nonce: Vec<u8>,
-        mut ciphertext: Vec<u8>,
+        mut payload: Vec<u8>,
         aad: Vec<u8>,
     ) -> Result<Vec<u8>, AeadError> {
-        let purported_tag = ciphertext.split_off(ciphertext.len() - AES_GCM_TAG_LEN);
-
-        let tag = self
-            .compute_tag(explicit_nonce.clone(), ciphertext.clone(), aad)
+        self._verify_tag(explicit_nonce.clone(), &mut payload, aad)
             .await?;
 
-        // Reject if tag is incorrect
-        if tag != purported_tag {
-            return Err(AeadError::CorruptedTag);
-        }
-
         self.aes_ctr
-            .decrypt_private(explicit_nonce, ciphertext)
+            .decrypt_private(explicit_nonce, payload)
             .map_err(AeadError::from)
             .await
     }
 
-    #[cfg_attr(feature = "tracing", tracing::instrument(level = "trace", err, ret))]
+    #[cfg_attr(
+        feature = "tracing",
+        tracing::instrument(level = "trace", skip(payload), err)
+    )]
     async fn decrypt_blind(
         &mut self,
         explicit_nonce: Vec<u8>,
-        mut ciphertext: Vec<u8>,
+        mut payload: Vec<u8>,
         aad: Vec<u8>,
     ) -> Result<(), AeadError> {
-        let purported_tag = ciphertext.split_off(ciphertext.len() - AES_GCM_TAG_LEN);
-
-        let tag = self
-            .compute_tag(explicit_nonce.clone(), ciphertext.clone(), aad)
+        self._verify_tag(explicit_nonce.clone(), &mut payload, aad)
             .await?;
 
-        // Reject if tag is incorrect
-        if tag != purported_tag {
-            return Err(AeadError::CorruptedTag);
-        }
-
         self.aes_ctr
-            .decrypt_blind(explicit_nonce, ciphertext)
+            .decrypt_blind(explicit_nonce, payload)
+            .map_err(AeadError::from)
+            .await
+    }
+
+    #[cfg_attr(
+        feature = "tracing",
+        tracing::instrument(level = "trace", skip(payload), err)
+    )]
+    async fn verify_tag(
+        &mut self,
+        explicit_nonce: Vec<u8>,
+        mut payload: Vec<u8>,
+        aad: Vec<u8>,
+    ) -> Result<(), AeadError> {
+        self._verify_tag(explicit_nonce.clone(), &mut payload, aad)
+            .await
+    }
+
+    #[cfg_attr(
+        feature = "tracing",
+        tracing::instrument(level = "trace", skip(payload), err)
+    )]
+    async fn prove_plaintext(
+        &mut self,
+        explicit_nonce: Vec<u8>,
+        mut payload: Vec<u8>,
+        aad: Vec<u8>,
+    ) -> Result<Vec<u8>, AeadError> {
+        self._verify_tag(explicit_nonce.clone(), &mut payload, aad)
+            .await?;
+
+        self.prove_plaintext_no_tag(explicit_nonce, payload).await
+    }
+
+    #[cfg_attr(
+        feature = "tracing",
+        tracing::instrument(level = "trace", skip(ciphertext), err)
+    )]
+    async fn prove_plaintext_no_tag(
+        &mut self,
+        explicit_nonce: Vec<u8>,
+        ciphertext: Vec<u8>,
+    ) -> Result<Vec<u8>, AeadError> {
+        self.aes_ctr
+            .prove_plaintext(explicit_nonce, ciphertext)
+            .map_err(AeadError::from)
+            .await
+    }
+
+    #[cfg_attr(
+        feature = "tracing",
+        tracing::instrument(level = "trace", skip(payload), err)
+    )]
+    async fn verify_plaintext(
+        &mut self,
+        explicit_nonce: Vec<u8>,
+        mut payload: Vec<u8>,
+        aad: Vec<u8>,
+    ) -> Result<(), AeadError> {
+        self._verify_tag(explicit_nonce.clone(), &mut payload, aad)
+            .await?;
+
+        self.verify_plaintext_no_tag(explicit_nonce, payload).await
+    }
+
+    #[cfg_attr(
+        feature = "tracing",
+        tracing::instrument(level = "trace", skip(ciphertext), err)
+    )]
+    async fn verify_plaintext_no_tag(
+        &mut self,
+        explicit_nonce: Vec<u8>,
+        ciphertext: Vec<u8>,
+    ) -> Result<(), AeadError> {
+        self.aes_ctr
+            .verify_plaintext(explicit_nonce, ciphertext)
             .map_err(AeadError::from)
             .await
     }
@@ -579,5 +683,38 @@ mod tests {
         )
         .unwrap_err();
         assert!(matches!(err, AeadError::CorruptedTag));
+    }
+
+    #[tokio::test]
+    async fn test_aes_gcm_verify_tag() {
+        let key = vec![0u8; 16];
+        let iv = vec![0u8; 4];
+        let explicit_nonce = vec![0u8; 8];
+        let plaintext = vec![1u8; 32];
+        let aad = vec![2u8; 12];
+        let ciphertext = reference_impl(&key, &iv, &explicit_nonce, &plaintext, &aad);
+
+        let len = ciphertext.len();
+
+        let ((mut leader, mut follower), (_leader_vm, _follower_vm)) =
+            setup_pair(key.clone(), iv.clone()).await;
+
+        tokio::try_join!(
+            leader.verify_tag(explicit_nonce.clone(), ciphertext.clone(), aad.clone()),
+            follower.verify_tag(explicit_nonce.clone(), ciphertext.clone(), aad.clone())
+        )
+        .unwrap();
+
+        // corrupt tag
+        let mut corrupted = ciphertext.clone();
+        corrupted[len - 1] -= 1;
+
+        let (leader_res, follower_res) = tokio::join!(
+            leader.verify_tag(explicit_nonce.clone(), corrupted.clone(), aad.clone()),
+            follower.verify_tag(explicit_nonce.clone(), corrupted, aad.clone())
+        );
+
+        assert!(matches!(leader_res.unwrap_err(), AeadError::CorruptedTag));
+        assert!(matches!(follower_res.unwrap_err(), AeadError::CorruptedTag));
     }
 }

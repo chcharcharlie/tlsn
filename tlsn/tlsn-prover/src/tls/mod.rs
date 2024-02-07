@@ -7,61 +7,42 @@
 
 mod config;
 mod error;
+mod future;
+mod notarize;
+mod prove;
 pub mod state;
 
 pub use config::{ProverConfig, ProverConfigBuilder, ProverConfigBuilderError};
 pub use error::ProverError;
-
-use ff::ShareConversionReveal;
-use futures::{
-    future::FusedFuture, AsyncRead, AsyncWrite, Future, FutureExt, SinkExt, StreamExt, TryFutureExt,
+pub use future::ProverFuture;
+use tlsn_common::{
+    mux::{attach_mux, MuxControl},
+    Role,
 };
-use rand::Rng;
-use std::{pin::Pin, sync::Arc};
-use tls_client_async::{bind_client, ClosedConnection, TlsConnection};
-use tls_mpc::{setup_components, MpcTlsLeader, TlsRole};
 
+use error::OTShutdownError;
+use future::{MuxFuture, OTFuture};
+use futures::{AsyncRead, AsyncWrite, FutureExt, StreamExt, TryFutureExt};
 use mpz_garble::{config::Role as DEAPRole, protocol::deap::DEAPVm};
 use mpz_ot::{
     actor::kos::{ReceiverActor, SenderActor, SharedReceiver, SharedSender},
     chou_orlandi, kos,
 };
 use mpz_share_conversion as ff;
+use rand::Rng;
+use state::{Notarize, Prove};
+use std::sync::Arc;
 use tls_client::{ClientConnection, ServerName as TlsServerName};
-use tlsn_core::{
-    commitment::TranscriptCommitmentBuilder,
-    msg::{SignedSessionHeader, TlsnMessage},
-    transcript::Transcript,
-    NotarizedSession, ServerName, SessionData,
-};
+use tls_client_async::{bind_client, ClosedConnection, TlsConnection};
+use tls_mpc::{setup_components, LeaderCtrl, MpcTlsLeader, TlsRole};
+use tlsn_core::transcript::Transcript;
+use utils_aio::mux::MuxChannel;
+
+#[cfg(feature = "formats")]
+use http::{state as http_state, HttpProver, HttpProverError};
+
 #[cfg(feature = "tracing")]
 use tracing::{debug, debug_span, instrument, Instrument};
-use uid_mux::{yamux, UidYamux};
-use utils_aio::{codec::BincodeMux, expect_msg_or_err, mux::MuxChannel};
-
-use error::OTShutdownError;
-
-use crate::{
-    http::{state as http_state, HttpProver, HttpProverError},
-    Mux,
-};
-
-/// Prover future which must be polled for the TLS connection to make progress.
-pub struct ProverFuture {
-    #[allow(clippy::type_complexity)]
-    fut: Pin<Box<dyn Future<Output = Result<Prover<state::Closed>, ProverError>> + Send + 'static>>,
-}
-
-impl Future for ProverFuture {
-    type Output = Result<Prover<state::Closed>, ProverError>;
-
-    fn poll(
-        mut self: Pin<&mut Self>,
-        cx: &mut std::task::Context<'_>,
-    ) -> std::task::Poll<Self::Output> {
-        self.fut.as_mut().poll(cx)
-    }
-}
 
 /// A prover instance.
 #[derive(Debug)]
@@ -95,14 +76,13 @@ impl Prover<state::Initialized> {
         self,
         socket: S,
     ) -> Result<Prover<state::Setup>, ProverError> {
-        let mut mux = UidYamux::new(yamux::Config::default(), socket, yamux::Mode::Client);
-        let notary_mux = BincodeMux::new(mux.control());
+        let (mut mux, mux_ctrl) = attach_mux(socket, Role::Prover);
 
         let mut mux_fut = MuxFuture {
             fut: Box::pin(async move { mux.run().await.map_err(ProverError::from) }.fuse()),
         };
 
-        let mpc_setup_fut = setup_mpc_backend(&self.config, notary_mux.clone());
+        let mpc_setup_fut = setup_mpc_backend(&self.config, mux_ctrl.clone());
         let (mpc_tls, vm, _, gf2, ot_fut) = futures::select! {
             res = mpc_setup_fut.fuse() => res?,
             _ = (&mut mux_fut).fuse() => return Err(std::io::Error::from(std::io::ErrorKind::UnexpectedEof))?,
@@ -111,7 +91,7 @@ impl Prover<state::Initialized> {
         Ok(Prover {
             config: self.config,
             state: state::Setup {
-                notary_mux,
+                mux_ctrl,
                 mux_fut,
                 mpc_tls,
                 vm,
@@ -140,7 +120,7 @@ impl Prover<state::Setup> {
         socket: S,
     ) -> Result<(TlsConnection, ProverFuture), ProverError> {
         let state::Setup {
-            notary_mux,
+            mux_ctrl,
             mut mux_fut,
             mpc_tls,
             vm,
@@ -148,56 +128,52 @@ impl Prover<state::Setup> {
             gf2,
         } = self.state;
 
+        let (mpc_ctrl, mpc_fut) = mpc_tls.run();
+
         let server_name = TlsServerName::try_from(self.config.server_dns())?;
         let config = tls_client::ClientConfig::builder()
             .with_safe_defaults()
             .with_root_certificates(self.config.root_cert_store.clone())
             .with_no_client_auth();
-        let client = ClientConnection::new(Arc::new(config), Box::new(mpc_tls), server_name)?;
+        let client =
+            ClientConnection::new(Arc::new(config), Box::new(mpc_ctrl.clone()), server_name)?;
 
         let (conn, conn_fut) = bind_client(socket, client);
 
         let start_time = web_time::UNIX_EPOCH.elapsed().unwrap().as_secs();
 
         let fut = Box::pin({
+            let mpc_ctrl = mpc_ctrl.clone();
             #[allow(clippy::let_and_return)]
             let fut = async move {
-                let ClosedConnection {
-                    mut client,
-                    sent,
-                    recv,
-                } = futures::select! {
-                    res = conn_fut.fuse() => res?,
-                    _ = ot_fut => return Err(OTShutdownError)?,
-                    _ = mux_fut => return Err(std::io::Error::from(std::io::ErrorKind::UnexpectedEof))?,
+                let conn_fut = async {
+                    let ClosedConnection { sent, recv, .. } = futures::select! {
+                        res = conn_fut.fuse() => res?,
+                        _ = ot_fut => return Err(OTShutdownError)?,
+                        _ = mux_fut => return Err(std::io::Error::from(std::io::ErrorKind::UnexpectedEof))?,
+                    };
+
+                    mpc_ctrl.close_connection().await?;
+
+                    Ok::<_, ProverError>((sent, recv))
                 };
 
-                let backend = client
-                    .backend_mut()
-                    .as_any_mut()
-                    .downcast_mut::<MpcTlsLeader>()
-                    .unwrap();
-
-                let handshake_decommitment = backend
-                    .handshake_decommitment_mut()
-                    .take()
-                    .expect("handshake decommitment is set");
-                let server_public_key = backend
-                    .server_public_key()
-                    .cloned()
-                    .expect("server public key is set");
+                let ((sent, recv), mpc_tls_data) =
+                    futures::try_join!(conn_fut, mpc_fut.map_err(ProverError::from))?;
 
                 Ok(Prover {
                     config: self.config,
                     state: state::Closed {
-                        notary_mux,
+                        mux_ctrl,
                         mux_fut,
                         vm,
                         ot_fut,
                         gf2,
                         start_time,
-                        handshake_decommitment,
-                        server_public_key,
+                        handshake_decommitment: mpc_tls_data
+                            .handshake_decommitment
+                            .expect("handshake was committed"),
+                        server_public_key: mpc_tls_data.server_public_key,
                         transcript_tx: Transcript::new(sent),
                         transcript_rx: Transcript::new(recv),
                     },
@@ -208,7 +184,13 @@ impl Prover<state::Setup> {
             fut
         });
 
-        Ok((conn, ProverFuture { fut }))
+        Ok((
+            conn,
+            ProverFuture {
+                fut,
+                ctrl: ProverControl { mpc_ctrl },
+            },
+        ))
     }
 }
 
@@ -233,107 +215,22 @@ impl Prover<state::Closed> {
     ///
     /// If the verifier is a Notary, this function will transition the prover to the next state
     /// where it can generate commitments to the transcript prior to finalization.
-    pub fn start_notarize(self) -> Prover<state::Notarize> {
+    pub fn start_notarize(self) -> Prover<Notarize> {
         Prover {
             config: self.config,
             state: self.state.into(),
         }
     }
-}
 
-impl Prover<state::Notarize> {
-    /// Returns the transcript of the sent requests
-    pub fn sent_transcript(&self) -> &Transcript {
-        &self.state.transcript_tx
-    }
-
-    /// Returns the transcript of the received responses
-    pub fn recv_transcript(&self) -> &Transcript {
-        &self.state.transcript_rx
-    }
-
-    /// Returns the transcript commitment builder
-    pub fn commitment_builder(&mut self) -> &mut TranscriptCommitmentBuilder {
-        &mut self.state.builder
-    }
-
-    /// Finalize the notarization returning a [`NotarizedSession`]
-    #[cfg_attr(feature = "tracing", instrument(level = "info", skip(self), err))]
-    pub async fn finalize(self) -> Result<NotarizedSession, ProverError> {
-        let state::Notarize {
-            mut notary_mux,
-            mut mux_fut,
-            mut vm,
-            mut ot_fut,
-            mut gf2,
-            start_time,
-            handshake_decommitment,
-            server_public_key,
-            transcript_tx,
-            transcript_rx,
-            builder,
-        } = self.state;
-
-        let commitments = builder.build()?;
-
-        let session_data = SessionData::new(
-            ServerName::Dns(self.config.server_dns().to_string()),
-            handshake_decommitment,
-            transcript_tx,
-            transcript_rx,
-            commitments,
-        );
-
-        let merkle_root = session_data.commitments().merkle_root();
-
-        let mut notarize_fut = Box::pin(async move {
-            let mut channel = notary_mux.get_channel("notarize").await?;
-
-            channel
-                .send(TlsnMessage::TranscriptCommitmentRoot(merkle_root))
-                .await?;
-
-            let notary_encoder_seed = vm
-                .finalize()
-                .await
-                .map_err(|e| ProverError::MpcError(Box::new(e)))?
-                .expect("encoder seed returned");
-
-            // This is a temporary approach until a maliciously secure share conversion protocol is implemented.
-            // The prover is essentially revealing the TLS MAC key. In some exotic scenarios this allows a malicious
-            // TLS verifier to modify the prover's request.
-            gf2.reveal()
-                .await
-                .map_err(|e| ProverError::MpcError(Box::new(e)))?;
-
-            let signed_header = expect_msg_or_err!(channel, TlsnMessage::SignedSessionHeader)?;
-
-            Ok::<_, ProverError>((notary_encoder_seed, signed_header))
-        })
-        .fuse();
-
-        let (notary_encoder_seed, SignedSessionHeader { header, signature }) = futures::select_biased! {
-            res = notarize_fut => res?,
-            _ = ot_fut => return Err(OTShutdownError)?,
-            _ = mux_fut => return Err(std::io::Error::from(std::io::ErrorKind::UnexpectedEof))?,
-        };
-
-        // Check the header is consistent with the Prover's view
-        header
-            .verify(
-                start_time,
-                &server_public_key,
-                &session_data.commitments().merkle_root(),
-                &notary_encoder_seed,
-                session_data.handshake_data_decommitment(),
-            )
-            .map_err(|_| {
-                ProverError::NotarizationError(
-                    "notary signed an inconsistent session header".to_string(),
-                )
-            })?;
-
-        Ok(NotarizedSession::new(header, Some(signature), session_data))
+    /// Starts proving the TLS session.
+    ///
+    /// This function transitions the prover into a state where it can prove content of the
+    /// transcript.
+    pub fn start_prove(self) -> Prover<Prove> {
+        Prover {
+            config: self.config,
+            state: self.state.into(),
+        }
     }
 }
 
@@ -342,7 +239,7 @@ impl Prover<state::Notarize> {
 #[allow(clippy::type_complexity)]
 async fn setup_mpc_backend(
     config: &ProverConfig,
-    mut mux: Mux,
+    mut mux: MuxControl,
 ) -> Result<
     (
         MpcTlsLeader,
@@ -456,46 +353,26 @@ async fn setup_mpc_backend(
     Ok((mpc_tls, vm, ot_recv, gf2, ot_fut))
 }
 
-/// A future which must be polled for the muxer to make progress.
-pub(crate) struct MuxFuture {
-    fut: Pin<Box<dyn FusedFuture<Output = Result<(), ProverError>> + Send + 'static>>,
+/// A controller for the prover.
+#[derive(Clone)]
+pub struct ProverControl {
+    mpc_ctrl: LeaderCtrl,
 }
 
-impl Future for MuxFuture {
-    type Output = Result<(), ProverError>;
-
-    fn poll(
-        mut self: Pin<&mut Self>,
-        cx: &mut std::task::Context<'_>,
-    ) -> std::task::Poll<Self::Output> {
-        self.fut.as_mut().poll(cx)
-    }
-}
-
-impl FusedFuture for MuxFuture {
-    fn is_terminated(&self) -> bool {
-        self.fut.is_terminated()
-    }
-}
-
-/// A future which must be polled for the Oblivious Transfer protocol to make progress.
-pub(crate) struct OTFuture {
-    fut: Pin<Box<dyn FusedFuture<Output = Result<(), ProverError>> + Send + 'static>>,
-}
-
-impl Future for OTFuture {
-    type Output = Result<(), ProverError>;
-
-    fn poll(
-        mut self: Pin<&mut Self>,
-        cx: &mut std::task::Context<'_>,
-    ) -> std::task::Poll<Self::Output> {
-        self.fut.as_mut().poll(cx)
-    }
-}
-
-impl FusedFuture for OTFuture {
-    fn is_terminated(&self) -> bool {
-        self.fut.is_terminated()
+impl ProverControl {
+    /// Defers decryption of data from the server until the server has closed the connection.
+    ///
+    /// This is a performance optimization which will significantly reduce the amount of upload bandwidth
+    /// used by the prover.
+    ///
+    /// # Notes
+    ///
+    /// * The prover may need to close the connection to the server in order for it to close the connection
+    ///   on its end. If neither the prover or server close the connection this will cause a deadlock.
+    pub async fn defer_decryption(&self) -> Result<(), ProverError> {
+        self.mpc_ctrl
+            .defer_decryption()
+            .await
+            .map_err(ProverError::from)
     }
 }

@@ -9,9 +9,7 @@ use p256::{ecdh::EphemeralSecret, EncodedPoint, PublicKey as ECDHPublicKey};
 use rand::{rngs::OsRng, thread_rng, Rng};
 
 use digest::Digest;
-use hmac::{Hmac, Mac};
-use sha2::Sha256;
-use std::{any::Any, convert::TryInto};
+use std::{any::Any, convert::TryInto, collections::VecDeque};
 use tls_core::{
     cert::ServerCertDetails,
     ke::ServerKxDetails,
@@ -22,53 +20,9 @@ use tls_core::{
         handshake::Random,
         message::{OpaqueMessage, PlainMessage},
     },
+    prf::prf,
     suites::{self, SupportedCipherSuite},
 };
-
-type HmacSha256 = Hmac<Sha256>;
-
-pub(crate) fn hmac_sha256(key: &[u8], input: &[u8]) -> [u8; 32] {
-    let mut mac = HmacSha256::new_from_slice(key).unwrap();
-    mac.update(input);
-    let out = mac.finalize().into_bytes();
-    out[..32]
-        .try_into()
-        .expect("expected output to be 32 bytes")
-}
-
-pub(crate) fn seed_ms(client_random: &[u8; 32], server_random: &[u8; 32]) -> [u8; 77] {
-    let mut seed = [0u8; 77];
-    seed[..13].copy_from_slice(b"master secret");
-    seed[13..45].copy_from_slice(client_random);
-    seed[45..].copy_from_slice(server_random);
-    seed
-}
-
-pub(crate) fn seed_ke(client_random: &[u8; 32], server_random: &[u8; 32]) -> [u8; 77] {
-    let mut seed = [0u8; 77];
-    seed[..13].copy_from_slice(b"key expansion");
-    seed[13..45].copy_from_slice(server_random);
-    seed[45..].copy_from_slice(client_random);
-    seed
-}
-
-pub(crate) fn seed_cf(handshake_blob: &[u8]) -> [u8; 47] {
-    let mut hasher = Sha256::new();
-    hasher.update(handshake_blob);
-    let mut seed = [0u8; 47];
-    seed[..15].copy_from_slice(b"client finished");
-    seed[15..].copy_from_slice(hasher.finalize().as_slice());
-    seed
-}
-
-pub(crate) fn seed_sf(handshake_blob: &[u8]) -> [u8; 47] {
-    let mut hasher = Sha256::new();
-    hasher.update(handshake_blob);
-    let mut seed = [0u8; 47];
-    seed[..15].copy_from_slice(b"server finished");
-    seed[15..].copy_from_slice(hasher.finalize().as_slice());
-    seed
-}
 
 /// Implementation of TLS backend using RustCrypto primitives
 pub struct RustCryptoBackend {
@@ -88,6 +42,8 @@ pub struct RustCryptoBackend {
     implemented_suites: [CipherSuite; 2],
     encrypter: Option<Encrypter>,
     decrypter: Option<Decrypter>,
+
+    buffer_incoming: VecDeque<OpaqueMessage>,
 }
 
 impl RustCryptoBackend {
@@ -110,22 +66,24 @@ impl RustCryptoBackend {
             ],
             encrypter: None,
             decrypter: None,
+            buffer_incoming: VecDeque::new(),
         }
     }
 
     /// Expands the handshake hash and master secret into verify_data for
     /// the Server_Finished
-    pub fn verify_data_sf_tls12(&mut self, hs_hash: &[u8], ms: &[u8; 48]) -> [u8; 12] {
-        let mut seed = [0u8; 47];
-        seed[..15].copy_from_slice(b"server finished");
-        seed[15..].copy_from_slice(hs_hash);
-        let a1 = hmac_sha256(ms, &seed);
-        let mut a1_seed = [0u8; 79];
-        a1_seed[..32].copy_from_slice(&a1);
-        a1_seed[32..].copy_from_slice(&seed);
-        let mut verify_data = [0u8; 12];
-        verify_data.copy_from_slice(&hmac_sha256(ms, &a1_seed)[..12]);
-        verify_data
+    pub fn verify_data_sf_tls12(&self, hs_hash: &[u8], ms: &[u8; 48]) -> [u8; 12] {
+        let mut vd = [0u8; 12];
+        prf(&mut vd, ms, b"server finished", hs_hash).expect("key length is valid");
+        vd
+    }
+
+    /// Expands the handshake hash and master secret into verify_data for
+    /// the Client_Finished
+    pub fn verify_data_cf_tls12(&self, hs_hash: &[u8], ms: &[u8; 48]) -> [u8; 12] {
+        let mut vd = [0u8; 12];
+        prf(&mut vd, ms, b"client finished", hs_hash).expect("key length is valid");
+        vd
     }
 
     /// Expands pre-master secret into session key using TLS 1.2 PRF
@@ -137,53 +95,26 @@ impl RustCryptoBackend {
         pms: &[u8],
     ) -> ([u8; 48], [u8; 40]) {
         // first expand pms into ms
-        let seed = seed_ms(client_random, server_random);
-        let a1 = hmac_sha256(pms, &seed);
-        let a2 = hmac_sha256(pms, &a1);
-        let mut a1_seed = [0u8; 109];
-        a1_seed[..32].copy_from_slice(&a1);
-        a1_seed[32..].copy_from_slice(&seed);
-        let mut a2_seed = [0u8; 109];
-        a2_seed[..32].copy_from_slice(&a2);
-        a2_seed[32..].copy_from_slice(&seed);
-        let p1 = hmac_sha256(pms, &a1_seed);
-        let p2 = hmac_sha256(pms, &a2_seed);
         let mut ms = [0u8; 48];
-        ms[..32].copy_from_slice(&p1);
-        ms[32..].copy_from_slice(&p2[..16]);
-        let ms_out = ms;
+        prf(
+            &mut ms,
+            pms,
+            b"master secret",
+            &concat::<64>(client_random, server_random),
+        )
+        .expect("key length is valid");
 
         // expand ms into session keys
-        let seed = seed_ke(client_random, server_random);
-        let a1 = hmac_sha256(&ms, &seed);
-        let a2 = hmac_sha256(&ms, &a1);
-        let mut a1_seed = [0u8; 109];
-        a1_seed[..32].copy_from_slice(&a1);
-        a1_seed[32..].copy_from_slice(&seed);
-        let mut a2_seed = [0u8; 109];
-        a2_seed[..32].copy_from_slice(&a2);
-        a2_seed[32..].copy_from_slice(&seed);
-        let p1 = hmac_sha256(&ms, &a1_seed);
-        let p2 = hmac_sha256(&ms, &a2_seed);
-        let mut ek = [0u8; 40];
-        ek[..32].copy_from_slice(&p1);
-        ek[32..].copy_from_slice(&p2[..8]);
-        (ms_out, ek)
-    }
+        let mut session_keys = [0u8; 40];
+        prf(
+            &mut session_keys,
+            &ms,
+            b"key expansion",
+            &concat::<64>(server_random, client_random),
+        )
+        .expect("key length is valid");
 
-    /// Expands the handshake hash and master secret into verify_data for
-    /// the Client_Finished
-    pub fn verify_data_cf_tls12(&mut self, hs_hash: &[u8], ms: &[u8; 48]) -> [u8; 12] {
-        let mut seed = [0u8; 47];
-        seed[..15].copy_from_slice(b"client finished");
-        seed[15..].copy_from_slice(hs_hash);
-        let a1 = hmac_sha256(ms, &seed);
-        let mut a1_seed = [0u8; 79];
-        a1_seed[..32].copy_from_slice(&a1);
-        a1_seed[32..].copy_from_slice(&seed);
-        let mut verify_data = [0u8; 12];
-        verify_data.copy_from_slice(&hmac_sha256(ms, &a1_seed)[..12]);
-        verify_data
+        (ms, session_keys)
     }
 
     fn set_encrypter(&mut self) -> Result<(), BackendError> {
@@ -242,14 +173,6 @@ impl RustCryptoBackend {
 
 #[async_trait]
 impl Backend for RustCryptoBackend {
-    fn as_any(&self) -> &dyn Any {
-        self
-    }
-
-    fn as_any_mut(&mut self) -> &mut dyn Any {
-        self
-    }
-
     async fn set_protocol_version(&mut self, version: ProtocolVersion) -> Result<(), BackendError> {
         match version {
             ProtocolVersion::TLSv1_2 => {
@@ -373,20 +296,30 @@ impl Backend for RustCryptoBackend {
         Ok(())
     }
 
-    fn set_server_cert_details(&mut self, _cert_details: ServerCertDetails) {}
+    async fn set_server_cert_details(
+        &mut self,
+        _cert_details: ServerCertDetails,
+    ) -> Result<(), BackendError> {
+        Ok(())
+    }
 
-    fn set_server_kx_details(&mut self, _kx_details: ServerKxDetails) {}
+    async fn set_server_kx_details(
+        &mut self,
+        _kx_details: ServerKxDetails,
+    ) -> Result<(), BackendError> {
+        Ok(())
+    }
 
-    async fn set_hs_hash_client_key_exchange(&mut self, hash: &[u8]) -> Result<(), BackendError> {
+    async fn set_hs_hash_client_key_exchange(&mut self, hash: Vec<u8>) -> Result<(), BackendError> {
         self.ems_seed = Some(hash.to_vec());
         Ok(())
     }
 
-    async fn set_hs_hash_server_hello(&mut self, _hash: &[u8]) -> Result<(), BackendError> {
+    async fn set_hs_hash_server_hello(&mut self, _hash: Vec<u8>) -> Result<(), BackendError> {
         Ok(())
     }
 
-    async fn get_server_finished_vd(&mut self, hash: &[u8]) -> Result<Vec<u8>, BackendError> {
+    async fn get_server_finished_vd(&mut self, hash: Vec<u8>) -> Result<Vec<u8>, BackendError> {
         let ms = self.master_secret.ok_or(BackendError::InvalidState(
             "Master secret not set".to_string(),
         ))?;
@@ -394,13 +327,13 @@ impl Backend for RustCryptoBackend {
         let verify_data = match self.protocol_version.ok_or(BackendError::InvalidState(
             "Protocol version not set".to_string(),
         ))? {
-            ProtocolVersion::TLSv1_2 => self.verify_data_sf_tls12(hash, &ms),
+            ProtocolVersion::TLSv1_2 => self.verify_data_sf_tls12(&hash, &ms),
             _ => unreachable!(),
         };
         Ok(verify_data.to_vec())
     }
 
-    async fn get_client_finished_vd(&mut self, hash: &[u8]) -> Result<Vec<u8>, BackendError> {
+    async fn get_client_finished_vd(&mut self, hash: Vec<u8>) -> Result<Vec<u8>, BackendError> {
         let ms = self.master_secret.ok_or(BackendError::InvalidState(
             "Master secret not set".to_string(),
         ))?;
@@ -408,7 +341,7 @@ impl Backend for RustCryptoBackend {
         let verify_data = match self.protocol_version.ok_or(BackendError::InvalidState(
             "Protocol version not set".to_string(),
         ))? {
-            ProtocolVersion::TLSv1_2 => self.verify_data_cf_tls12(hash, &ms),
+            ProtocolVersion::TLSv1_2 => self.verify_data_cf_tls12(&hash, &ms),
             _ => unreachable!(),
         };
         Ok(verify_data.to_vec())
@@ -473,6 +406,32 @@ impl Backend for RustCryptoBackend {
             }
         }
     }
+
+    async fn buffer_incoming(&mut self, msg: OpaqueMessage) -> Result<(), BackendError> {
+        self.buffer_incoming.push_back(msg);
+        Ok(())
+    }
+
+    async fn next_incoming(&mut self) -> Result<Option<OpaqueMessage>, BackendError> {
+        Ok(self.buffer_incoming.pop_front())
+    }
+
+    async fn buffer_len(&mut self) -> Result<usize, BackendError> {
+        Ok(self.buffer_incoming.len())
+    }
+}
+
+/// Concatenates two slices into a new array.
+///
+/// # Panics
+///
+/// Panics if the size of the output array is not equal to the sum of the sizes of the input slices.
+fn concat<const O: usize>(left: &[u8], right: &[u8]) -> [u8; O] {
+    assert_eq!(left.len() + right.len(), O);
+    let mut out = [0u8; O];
+    out[..left.len()].copy_from_slice(left);
+    out[left.len()..].copy_from_slice(right);
+    out
 }
 
 pub struct Encrypter {
