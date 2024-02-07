@@ -4,10 +4,10 @@ server:
   port: 7047
 
 notarization:
-  max-transcript-size: 65536
+  max-transcript-size: 16384
 
 tls:
-  enabled: false
+  enabled: true
   private-key-pem-path: "/data/privkey.pem"
   certificate-pem-path: "/data/cert.pem"
 
