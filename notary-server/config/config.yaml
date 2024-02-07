@@ -8,8 +8,8 @@ notarization:
 
 tls:
   enabled: false
-  private-key-pem-path: "./fixture/tls/notary.key"
-  certificate-pem-path: "./fixture/tls/notary.crt"
+  private-key-pem-path: "/data/privkey.pem"
+  certificate-pem-path: "/data/cert.pem"
 
 notary-signature:
   private-key-pem-path: "./fixture/notary/notary.key"
