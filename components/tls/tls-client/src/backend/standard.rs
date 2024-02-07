@@ -211,11 +211,11 @@ impl Backend for RustCryptoBackend {
     }
 
     async fn set_encrypt(&mut self, _mode: EncryptMode) -> Result<(), BackendError> {
-        todo!()
+        Ok(())
     }
 
     async fn set_decrypt(&mut self, _mode: DecryptMode) -> Result<(), BackendError> {
-        todo!()
+        Ok(())
     }
 
     async fn get_client_random(&mut self) -> Result<Random, BackendError> {
