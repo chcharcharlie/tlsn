@@ -8,7 +8,10 @@ This crate is currently under active development and should not be used in produ
 
 ---
 ## Running the server
-⚠️ To run this server in a *production environment*, please first read this [page](https://docs.tlsnotary.org/developers/notary_server.html).
+### ⚠️ Notice
+- When running this server against a prover (e.g. [Rust](https://github.com/tlsnotary/tlsn/tree/dev/tlsn/examples) or [browser extension](https://github.com/tlsnotary/tlsn-extension)), please ensure that the prover's version is the same as the version of this server
+- When running this server in a *production environment*, please first read this [page](https://docs.tlsnotary.org/developers/notary_server.html)
+- When running this server in a *local environment* with a browser extension, please turn off this server's TLS in the config (refer [here](#optional-tls))
 
 ### Using Cargo
 1. Configure the server setting in this config [file](./config/config.yaml) — refer [here](./src/config.rs) for more information on the definition of the setting parameters.
@@ -40,8 +43,6 @@ docker run --init -p 127.0.0.1:7047:7047 ghcr.io/tlsnotary/tlsn/notary-server:la
 ```bash
 docker run --init -p 127.0.0.1:7047:7047 -v <your config folder path>:/root/.notary-server/config ghcr.io/tlsnotary/tlsn/notary-server:latest
 ```
-
-⚠️ When running this notary-server image against a [prover](https://github.com/tlsnotary/tlsn/tree/3e0dcc77d5b8b7d6739ca725f36345108ebecd75/tlsn/examples), please ensure that the prover's tagged version is the same as the version tag of this image.
 
 #### Building from source
 1. Configure the server setting in this config [file](./config/config.yaml).
@@ -83,6 +84,16 @@ To perform notarization using the session id (unique id returned upon calling th
 String
 
 ---
+## Logging
+The default logging strategy of this server is set to `DEBUG` verbosity level for the crates that are useful for most debugging scenarios, i.e. using the following filtering logic:
+
+`notary_server=DEBUG,tlsn_verifier=DEBUG,tls_mpc=DEBUG,tls_client_async=DEBUG`
+
+In the config [file](./config/config.yaml), one can toggle the verbosity level for these crates using the `level` field under `logging`.
+
+One can also provide custom filtering logic by adding a `filter` field  under `logging` in the config file above, and use a value that follows tracing crate's [filter directive syntax](https://docs.rs/tracing-subscriber/latest/tracing_subscriber/filter/struct.EnvFilter.html#example-syntax).
+
+---
 ## Architecture
 ### Objective
 The main objective of a notary server is to perform notarization together with a prover. In this case, the prover can either be
@@ -101,13 +112,17 @@ To streamline this process, a single HTTP endpoint (`/session`) is used by both 
 After calling the configuration endpoint above, prover can proceed to start notarization. For TCP client, that means calling the `/notarize` endpoint using HTTP (`https`), while WebSocket client should call the same endpoint but using WebSocket (`wss`). Example implementations of these clients can be found in the [integration test](./tests/integration_test.rs).
 
 #### Signatures
-Currently, both the private key (and cert) used to establish TLS connection with prover, and the private key used by notary server to sign the notarized transcript, are hardcoded PEM keys stored in this repository. Though the paths of these keys can be changed in the config to use different keys instead.
+Currently, both the private key (and cert) used to establish TLS connection with prover, and the private key used by notary server to sign the notarized transcript, are hardcoded PEM keys stored in this repository. Though the paths of these keys can be changed in the config (`notary-key` field) to use different keys instead.
 
 #### Authorization
-An optional authorization module is available to only allow requests with valid API key attached in the authorization header. The API key whitelist path (as well as the flag to enable/disable this module) is configurable [here](./config/config.yaml).
+An optional authorization module is available to only allow requests with valid API key attached in the authorization header. The API key whitelist path (as well as the flag to enable/disable this module) can be changed in the config (`authorization` field).
 
 #### Optional TLS
-TLS between prover and notary is currently manually handled in the server, though it can be turned off if TLS is to be handled by an external environment, e.g. reverse proxy, cloud setup (configurable [here](./config/config.yaml)).
+TLS between prover and notary is currently manually handled in the server, though it can be turned off if any of the following is true
+- This server is run locally
+- TLS is to be handled by an external environment, e.g. reverse proxy, cloud setup
+
+The toggle to turn on/off TLS is in the config (`tls` field).
 
 ### Design Choices
 #### Web Framework
