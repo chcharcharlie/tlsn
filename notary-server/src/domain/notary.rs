@@ -3,7 +3,8 @@ use std::{collections::HashMap, sync::Arc};
 use chrono::{DateTime, Utc};
 use p256::ecdsa::SigningKey;
 use serde::{Deserialize, Serialize};
-use tokio::sync::Mutex;
+use std::sync::Mutex;
+use tokio::sync::Mutex as AsyncMutex;
 
 use crate::{config::NotarizationProperties, domain::auth::AuthorizationWhitelistRecord};
 
@@ -20,8 +21,10 @@ pub struct NotarizationSessionResponse {
 #[serde(rename_all = "camelCase")]
 pub struct NotarizationSessionRequest {
     pub client_type: ClientType,
-    /// Maximum transcript size in bytes
-    pub max_transcript_size: Option<usize>,
+    /// Maximum data that can be sent by the prover
+    pub max_sent_data: Option<usize>,
+    /// Maximum data that can be received by the prover
+    pub max_recv_data: Option<usize>,
 }
 
 /// Request query of the /notarize API
@@ -44,7 +47,8 @@ pub enum ClientType {
 /// Session configuration data to be stored in temporary storage
 #[derive(Clone, Debug)]
 pub struct SessionData {
-    pub max_transcript_size: Option<usize>,
+    pub max_sent_data: Option<usize>,
+    pub max_recv_data: Option<usize>,
     pub created_at: DateTime<Utc>,
 }
 
@@ -54,16 +58,16 @@ pub struct NotaryGlobals {
     pub notary_signing_key: SigningKey,
     pub notarization_config: NotarizationProperties,
     /// A temporary storage to store configuration data, mainly used for WebSocket client
-    pub store: Arc<Mutex<HashMap<String, SessionData>>>,
+    pub store: Arc<AsyncMutex<HashMap<String, SessionData>>>,
     /// Whitelist of API keys for authorization purpose
-    pub authorization_whitelist: Option<Arc<HashMap<String, AuthorizationWhitelistRecord>>>,
+    pub authorization_whitelist: Option<Arc<Mutex<HashMap<String, AuthorizationWhitelistRecord>>>>,
 }
 
 impl NotaryGlobals {
     pub fn new(
         notary_signing_key: SigningKey,
         notarization_config: NotarizationProperties,
-        authorization_whitelist: Option<Arc<HashMap<String, AuthorizationWhitelistRecord>>>,
+        authorization_whitelist: Option<Arc<Mutex<HashMap<String, AuthorizationWhitelistRecord>>>>,
     ) -> Self {
         Self {
             notary_signing_key,

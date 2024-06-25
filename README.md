@@ -18,6 +18,8 @@
 
 # TLSNotary
 
+**Data provenance and privacy with secure multi-party computation**
+
 ## ⚠️ Notice
 
 This project is currently under active development and should not be used in production. Expect bugs and regular major breaking changes.
@@ -30,24 +32,25 @@ All crates in this repository are licensed under either of
 
 at your option.
 
-## Overview
+## Branches
 
-- **tls**: Home of the TLS logic of our protocol like handshake en-/decryption, ghash, **currently outdated**
-- **utils**: Utility functions which are frequently used everywhere
-- **actors**: Provides actors, which implement protocol-specific functionality using
-  the actor pattern. They usually wrap an aio module
-- **universal-hash**: Implements ghash, which is used AES-GCM. Poly-1305 coming soon.
-- **point-addition**: Used in key-exchange and allows to compute a two party sharing of
-  an EC curve point
+- [`main`](https://github.com/tlsnotary/tlsn/tree/main)
+  - Default branch — points to the latest release.
+  - This is stable and suitable for most users.
+- [`dev`](https://github.com/tlsnotary/tlsn/tree/dev)
+  - Development branch — contains the latest PRs.
+  - Developers should submit their PRs against this branch.
 
-### General remarks
+## Directory
 
-- the TLSNotary codebase makes heavy use of async Rust. Usually an aio
-  crate/module implements the network IO and wraps a core crate/module which
-  provides the protocol implementation. This is a frequent pattern you will
-  encounter in the codebase.
-- some protocols are implemented using the actor pattern to facilitate
-  asynchronous message processing with shared state.
+- [tlsn](./tlsn/): The home for examples and API libraries.
+    - [examples](./tlsn/examples/): Examples on how to use the TLSNotary protocol.
+    - [tlsn-prover](./tlsn/tlsn-prover/): The library for the prover component.
+    - [tlsn-verifier](./tlsn/tlsn-verifier/): The library for the verifier component.
+- [notary-server](./notary-server/): Implements the [notary server](https://docs.tlsnotary.org/intro.html#tls-verification-with-a-general-purpose-notary).
+- [components](./components/): Houses low-level libraries utilized by [tlsn](./tlsn/).
+
+This repository contains the source code for the Rust implementation of the TLSNotary protocol. For additional tools and implementations related to TLSNotary, visit <https://github.com/tlsnotary>. This includes repositories such as [`tlsn-js`](https://github.com/tlsnotary/tlsn-js), [`tlsn-extension`](https://github.com/tlsnotary/tlsn-extension), [`explorer`](https://github.com/tlsnotary/explorer), among others.
 
 
 ## Contribution

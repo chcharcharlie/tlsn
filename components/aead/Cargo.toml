@@ -5,7 +5,7 @@ description = "This crate provides an implementation of a two-party version of A
 keywords = ["tls", "mpc", "2pc", "aead", "aes", "aes-gcm"]
 categories = ["cryptography"]
 license = "MIT OR Apache-2.0"
-version = "0.1.0-alpha.4"
+version = "0.1.0-alpha.5"
 edition = "2021"
 
 [lib]
@@ -25,8 +25,8 @@ tracing = [
 tlsn-block-cipher = { path = "../cipher/block-cipher" }
 tlsn-stream-cipher = { path = "../cipher/stream-cipher" }
 tlsn-universal-hash = { path = "../universal-hash" }
-mpz-core = { git = "https://github.com/privacy-scaling-explorations/mpz", rev = "850636f" }
-mpz-garble = { git = "https://github.com/privacy-scaling-explorations/mpz", rev = "850636f" }
+mpz-core = { git = "https://github.com/privacy-scaling-explorations/mpz", rev = "9f7403b" }
+mpz-garble = { git = "https://github.com/privacy-scaling-explorations/mpz", rev = "9f7403b" }
 tlsn-utils-aio = { git = "https://github.com/tlsnotary/tlsn-utils", rev = "51f313d" }
 
 async-trait = "0.1"

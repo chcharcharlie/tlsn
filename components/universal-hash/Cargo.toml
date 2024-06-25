@@ -5,7 +5,7 @@ description = "A crate which implements different hash functions for two-party c
 keywords = ["tls", "mpc", "2pc", "hash"]
 categories = ["cryptography"]
 license = "MIT OR Apache-2.0"
-version = "0.1.0-alpha.4"
+version = "0.1.0-alpha.5"
 edition = "2021"
 
 [features]
@@ -16,9 +16,10 @@ mock = []
 
 [dependencies]
 # tlsn
-mpz-core = { git = "https://github.com/privacy-scaling-explorations/mpz", rev = "850636f" }
-mpz-share-conversion-core = { git = "https://github.com/privacy-scaling-explorations/mpz", rev = "850636f" }
-mpz-share-conversion = { git = "https://github.com/privacy-scaling-explorations/mpz", rev = "850636f" }
+mpz-core = { git = "https://github.com/privacy-scaling-explorations/mpz", rev = "9f7403b" }
+mpz-fields = { git = "https://github.com/privacy-scaling-explorations/mpz", rev = "9f7403b" }
+mpz-share-conversion-core = { git = "https://github.com/privacy-scaling-explorations/mpz", rev = "9f7403b" }
+mpz-share-conversion = { git = "https://github.com/privacy-scaling-explorations/mpz", rev = "9f7403b" }
 
 # async
 async-trait = "0.1"
