@@ -16,7 +16,7 @@
 # try to dynamically link to a different (non-existing) version in the runner image
 #
 # (5) rust:latest is still using bullseye somehow which only has OpenSSL 1.1.1
-FROM rust:1.75.0 AS builder
+FROM rust:bookworm AS builder
 WORKDIR /usr/src/tlsn
 COPY . .
 RUN cargo install --path notary/server
