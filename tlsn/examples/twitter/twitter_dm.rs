@@ -53,11 +53,26 @@ async fn main() {
         .build()
         .unwrap();
 
+    let (tx,mut rx): (UnboundedSender<ProverEvent>, UnboundedReceiver<ProverEvent>) = mpsc::unbounded_channel();
+
     // Create a new prover and set up the MPC backend.
-    let prover = Prover::new(config)
+    let prover = Prover::new(config, tx)
         .setup(notary_tls_socket.compat())
         .await
         .unwrap();
+
+    tokio::spawn(async move {
+        while let Some(event) = rx.recv().await {
+            // handle received event here
+            // match event {
+            //     ProverEvent::Setup => {
+
+            //     },
+            //     ...
+            // }
+            info!("Received prover event: {:?}", event);
+        }
+    });
 
     let client_socket = tokio::net::TcpStream::connect((SERVER_DOMAIN, 443))
         .await
