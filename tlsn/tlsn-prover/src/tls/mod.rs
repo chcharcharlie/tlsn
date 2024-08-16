@@ -22,18 +22,19 @@ use tlsn_common::{
 
 use error::OTShutdownError;
 use future::{MuxFuture, OTFuture};
-use futures::{AsyncRead, AsyncWrite, FutureExt, StreamExt, TryFutureExt};
+use futures::{channel::mpsc, AsyncRead, AsyncWrite, FutureExt, StreamExt, TryFutureExt};
 use mpz_garble::{config::Role as DEAPRole, protocol::deap::DEAPVm};
 use mpz_ot::{
     actor::kos::{ReceiverActor, SenderActor, SharedReceiver, SharedSender},
     chou_orlandi, kos,
 };
+use tokio::sync::mpsc;
 use mpz_share_conversion as ff;
 use rand::Rng;
 use state::{Notarize, Prove};
 use std::sync::Arc;
 use tls_client::{ClientConnection, ServerName as TlsServerName};
-use tls_client_async::{bind_client, ClosedConnection, TlsConnection};
+use tls_client_async::{bind_client, ClosedConnection, TlsConnection, ProverEvent};
 use tls_mpc::{setup_components, LeaderCtrl, MpcTlsLeader, TlsRole};
 use tlsn_core::transcript::Transcript;
 use utils_aio::mux::MuxChannel;
@@ -49,6 +50,7 @@ use tracing::{debug, debug_span, instrument, Instrument};
 pub struct Prover<T: state::ProverState> {
     config: ProverConfig,
     state: T,
+    tx: mpsc::UnboundedSender<ProverEvent>,
 }
 
 impl Prover<state::Initialized> {
@@ -57,10 +59,11 @@ impl Prover<state::Initialized> {
     /// # Arguments
     ///
     /// * `config` - The configuration for the prover.
-    pub fn new(config: ProverConfig) -> Self {
+    pub fn new(config: ProverConfig, tx: mpsc::UnboundedSender<ProverEvent>) -> Self {
         Self {
             config,
             state: state::Initialized,
+            tx,
         }
     }
 
@@ -87,6 +90,7 @@ impl Prover<state::Initialized> {
             res = mpc_setup_fut.fuse() => res?,
             _ = (&mut mux_fut).fuse() => return Err(std::io::Error::from(std::io::ErrorKind::UnexpectedEof))?,
         };
+        self.tx.send(ProverEvent::Setup).unwrap();
 
         Ok(Prover {
             config: self.config,
@@ -98,6 +102,7 @@ impl Prover<state::Initialized> {
                 ot_fut,
                 gf2,
             },
+            tx: self.tx.clone(),
         })
     }
 }
@@ -138,7 +143,7 @@ impl Prover<state::Setup> {
         let client =
             ClientConnection::new(Arc::new(config), Box::new(mpc_ctrl.clone()), server_name)?;
 
-        let (conn, conn_fut) = bind_client(socket, client);
+        let (conn, conn_fut) = bind_client(socket, client, self.tx.clone());
 
         let start_time = web_time::UNIX_EPOCH.elapsed().unwrap().as_secs();
 
@@ -177,12 +182,14 @@ impl Prover<state::Setup> {
                         transcript_tx: Transcript::new(sent),
                         transcript_rx: Transcript::new(recv),
                     },
+                    tx: self.tx.clone(),
                 })
             };
             #[cfg(feature = "tracing")]
             let fut = fut.instrument(debug_span!("prover_tls_connection"));
             fut
         });
+        self.tx.send(ProverEvent::Connect).unwrap();
 
         Ok((
             conn,
@@ -216,9 +223,11 @@ impl Prover<state::Closed> {
     /// If the verifier is a Notary, this function will transition the prover to the next state
     /// where it can generate commitments to the transcript prior to finalization.
     pub fn start_notarize(self) -> Prover<Notarize> {
+        self.tx.send(ProverEvent::StartNotarize).unwrap();
         Prover {
             config: self.config,
             state: self.state.into(),
+            tx: self.tx.clone(),
         }
     }
 
@@ -227,9 +236,11 @@ impl Prover<state::Closed> {
     /// This function transitions the prover into a state where it can prove content of the
     /// transcript.
     pub fn start_prove(self) -> Prover<Prove> {
+        self.tx.send(ProverEvent::StartProve).unwrap();
         Prover {
             config: self.config,
             state: self.state.into(),
+            tx: self.tx.clone(),
         }
     }
 }

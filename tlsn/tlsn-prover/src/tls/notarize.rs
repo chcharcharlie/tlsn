@@ -35,6 +35,7 @@ impl Prover<Notarize> {
     /// Finalize the notarization returning a [`NotarizedSession`]
     #[cfg_attr(feature = "tracing", instrument(level = "info", skip(self), err))]
     pub async fn finalize(self) -> Result<NotarizedSession, ProverError> {
+        self.tx.send(ProverEvent::Finalize).unwrap();
         let Notarize {
             mut mux_ctrl,
             mut mux_fut,
