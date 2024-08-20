@@ -106,7 +106,7 @@ impl Future for ConnectionFuture {
 pub fn bind_client<T: AsyncRead + AsyncWrite + Send + Unpin + 'static>(
     socket: T,
     mut client: ClientConnection,
-    mut tx: tokio_mpsc::UnboundedSender<ProverEvent>,
+    mut tx: mpsc::UnboundedSender<ProverEvent>,
 ) -> (TlsConnection, ConnectionFuture) {
     let (tx_sender, mut tx_receiver) = mpsc::channel(1 << 14);
     let (mut rx_sender, rx_receiver) = mpsc::channel(1 << 14);
@@ -146,7 +146,7 @@ pub fn bind_client<T: AsyncRead + AsyncWrite + Send + Unpin + 'static>(
                     let _sent = client.write_tls_async(&mut server_tx).await?;
                     #[cfg(feature = "tracing")]
                     trace!("sent {} tls bytes to server", _sent);
-                    tx.send(ProverEvent::DataSentToServer(_sent)).unwrap();
+                    let _ = tx.send(ProverEvent::DataSentToServer(_sent)).await;
                 }
                 server_tx.flush().await?;
             }
@@ -183,7 +183,7 @@ pub fn bind_client<T: AsyncRead + AsyncWrite + Send + Unpin + 'static>(
                     let received = received?;
                     #[cfg(feature = "tracing")]
                     trace!("received {} tls bytes from server", received);
-                    tx.send(ProverEvent::DataReceivedFromServer(received)).unwrap();
+                    let _ = tx.send(ProverEvent::DataReceivedFromServer(received)).await;
 
                     // Loop until we've processed all the data we received in this read.
                     // Note that we must make one iteration even if `received == 0`.
@@ -201,7 +201,7 @@ pub fn bind_client<T: AsyncRead + AsyncWrite + Send + Unpin + 'static>(
 
                     #[cfg(feature = "tracing")]
                     trace!("processed {} tls bytes from server", processed);
-                    tx.send(ProverEvent::DataProcessedFromServer(processed)).unwrap();
+                    let _ = tx.send(ProverEvent::DataProcessedFromServer(processed)).await;
 
                     // By convention if `AsyncRead::read` returns 0, it means EOF, i.e. the peer
                     // has closed the socket.
@@ -223,7 +223,7 @@ pub fn bind_client<T: AsyncRead + AsyncWrite + Send + Unpin + 'static>(
                     if let Some(data) = data {
                         #[cfg(feature = "tracing")]
                         trace!("writing {} plaintext bytes to client", data.len());
-                        tx.send(ProverEvent::WritePlainTextToClient(data.len())).unwrap();
+                        let _ = tx.send(ProverEvent::WritePlainTextToClient(data.len())).await;
 
                         sent.extend(&data);
                         client
@@ -248,7 +248,7 @@ pub fn bind_client<T: AsyncRead + AsyncWrite + Send + Unpin + 'static>(
                 _ = &mut notify => {
                     #[cfg(feature = "tracing")]
                     trace!("backend is ready to decrypt");
-                    tx.send(ProverEvent::ReadyToDecrypt).unwrap();
+                    let _ = tx.send(ProverEvent::ReadyToDecrypt).await;
 
                     client.process_new_packets().await?;
                 }
