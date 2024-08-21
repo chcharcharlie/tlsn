@@ -15,6 +15,7 @@ use tlsn_core::{
 #[cfg(feature = "tracing")]
 use tracing::instrument;
 use utils_aio::{expect_msg_or_err, mux::MuxChannel};
+use tls_client_async::ProverEvent;
 
 impl Prover<Notarize> {
     /// Returns the transcript of the sent requests

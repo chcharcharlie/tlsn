@@ -147,6 +147,8 @@ impl Prover<state::Setup> {
 
         let start_time = web_time::UNIX_EPOCH.elapsed().unwrap().as_secs();
 
+        let tx = self.tx.clone();
+
         let fut = Box::pin({
             let mpc_ctrl = mpc_ctrl.clone();
             #[allow(clippy::let_and_return)]
@@ -182,7 +184,7 @@ impl Prover<state::Setup> {
                         transcript_tx: Transcript::new(sent),
                         transcript_rx: Transcript::new(recv),
                     },
-                    tx: self.tx.clone(),
+                    tx: tx,
                 })
             };
             #[cfg(feature = "tracing")]
