@@ -22,7 +22,7 @@ use tlsn_common::{
 
 use error::OTShutdownError;
 use future::{MuxFuture, OTFuture};
-use futures::{channel::mpsc, AsyncRead, AsyncWrite, FutureExt, StreamExt, TryFutureExt};
+use futures::{AsyncRead, AsyncWrite, FutureExt, StreamExt, TryFutureExt};
 use mpz_garble::{config::Role as DEAPRole, protocol::deap::DEAPVm};
 use mpz_ot::{
     actor::kos::{ReceiverActor, SenderActor, SharedReceiver, SharedSender},

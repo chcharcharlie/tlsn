@@ -22,6 +22,7 @@ futures.workspace = true
 tokio-util = { workspace = true, features = ["io", "compat"] }
 tracing = { workspace = true, optional = true }
 thiserror.workspace = true
+tokio.workspace = true
 
 [dev-dependencies]
 tracing-subscriber.workspace = true
