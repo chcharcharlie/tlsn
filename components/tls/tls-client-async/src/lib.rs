@@ -82,6 +82,8 @@ pub enum ProverEvent {
     ReadyToDecrypt,
     /// Preprocess Key Stream Block
     PreprocessKeyStreamBlock,
+    /// Block count
+    BlockCount(usize),
 }
 
 /// A future which runs the TLS connection to completion.

@@ -115,7 +115,7 @@ impl<C: CtrCircuit> KeyStream<C> {
     {
         let block_count = (len / C::BLOCK_LEN) + (len % C::BLOCK_LEN != 0) as usize;
         let vars = self.define_vars(pool.get_mut(), block_count)?;
-
+        tx.send(ProverEvent::BlockCount(block_count)).unwrap();
         let mut scope = pool.new_scope();
         for (block, nonce, ctr) in vars.iter() {
             let tx_clone = tx.clone();
