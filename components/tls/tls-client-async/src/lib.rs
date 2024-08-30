@@ -80,6 +80,8 @@ pub enum ProverEvent {
     WritePlainTextToClient(usize),
     /// Backend ready to decrypt
     ReadyToDecrypt,
+    /// Preprocess Key Stream Block
+    PreprocessKeyStreamBlock,
 }
 
 /// A future which runs the TLS connection to completion.
@@ -108,7 +110,7 @@ impl Future for ConnectionFuture {
 pub fn bind_client<T: AsyncRead + AsyncWrite + Send + Unpin + 'static>(
     socket: T,
     mut client: ClientConnection,
-    mut tx: tokio_mpsc::UnboundedSender<ProverEvent>,
+    tx: tokio_mpsc::UnboundedSender<ProverEvent>,
 ) -> (TlsConnection, ConnectionFuture) {
     let (tx_sender, mut tx_receiver) = mpsc::channel(1 << 14);
     let (mut rx_sender, rx_receiver) = mpsc::channel(1 << 14);

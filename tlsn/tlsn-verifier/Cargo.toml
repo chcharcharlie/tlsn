@@ -17,6 +17,7 @@ tlsn-common.workspace = true
 tlsn-tls-core.workspace = true
 tlsn-tls-mpc.workspace = true
 uid-mux.workspace = true
+tlsn-tls-client-async = { path = "../../components/tls/tls-client-async" }
 
 tlsn-utils-aio.workspace = true
 
@@ -34,3 +35,4 @@ signature.workspace = true
 opaque-debug.workspace = true
 
 tracing = { workspace = true, optional = true }
+tokio.workspace = true

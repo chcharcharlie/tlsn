@@ -1,6 +1,8 @@
 use std::{collections::VecDeque, marker::PhantomData};
 
 use mpz_garble::{value::ValueRef, Execute, Load, Memory, Prove, Thread, ThreadPool, Verify};
+use tls_client_async::ProverEvent;
+use tokio::sync::mpsc::UnboundedSender;
 use utils::id::NestedId;
 
 use crate::{config::ExecutionMode, CtrCircuit, StreamCipherError};
@@ -106,6 +108,7 @@ impl<C: CtrCircuit> KeyStream<C> {
         key: &ValueRef,
         iv: &ValueRef,
         len: usize,
+        tx: UnboundedSender<ProverEvent>,
     ) -> Result<(), StreamCipherError>
     where
         T: Thread + Memory + Load + Send + 'static,
@@ -115,6 +118,7 @@ impl<C: CtrCircuit> KeyStream<C> {
 
         let mut scope = pool.new_scope();
         for (block, nonce, ctr) in vars.iter() {
+            let tx_clone = tx.clone();
             scope.push(move |thread| {
                 Box::pin(preprocess_block::<T, C>(
                     thread,
@@ -123,6 +127,7 @@ impl<C: CtrCircuit> KeyStream<C> {
                     block.clone(),
                     nonce.clone(),
                     ctr.clone(),
+                    tx_clone,
                 ))
             });
         }
@@ -211,19 +216,22 @@ async fn preprocess_block<T, C>(
     block: ValueRef,
     nonce: ValueRef,
     ctr: ValueRef,
+    tx: UnboundedSender<ProverEvent>,
 ) -> Result<(), StreamCipherError>
 where
     T: Load + Send,
     C: CtrCircuit,
 {
-    thread
+    let res = thread
         .load(
             C::circuit(),
             &[key.clone(), iv.clone(), nonce.clone(), ctr.clone()],
             &[block.clone()],
         )
         .await
-        .map_err(StreamCipherError::from)
+        .map_err(StreamCipherError::from);
+    tx.send(ProverEvent::PreprocessKeyStreamBlock).unwrap();
+    res
 }
 
 /// Computes one block of the keystream.

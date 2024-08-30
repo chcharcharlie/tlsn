@@ -34,6 +34,8 @@ use tlsn_common::{
     mux::{attach_mux, MuxControl},
     Role,
 };
+use tls_client_async::ProverEvent;
+use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender, unbounded_channel};
 use tlsn_core::{proof::SessionInfo, RedactedTranscript, SessionHeader, Signature};
 use utils_aio::{duplex::Duplex, mux::MuxChannel};
 
@@ -320,6 +322,8 @@ async fn setup_mpc_backend(
 
     let mpc_tls_config = config.build_mpc_tls_config();
 
+    let (tx,_ ): (UnboundedSender<ProverEvent>, UnboundedReceiver<ProverEvent>) = unbounded_channel();
+
     let (ke, prf, encrypter, decrypter) = setup_components(
         mpc_tls_config.common(),
         TlsRole::Follower,
@@ -329,6 +333,7 @@ async fn setup_mpc_backend(
         p256_recv,
         gf2.handle()
             .map_err(|e| VerifierError::MpcError(Box::new(e)))?,
+        tx.clone(),
     )
     .await
     .map_err(|e| VerifierError::MpcError(Box::new(e)))?;

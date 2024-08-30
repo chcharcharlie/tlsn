@@ -3,6 +3,7 @@ use key_exchange as ke;
 use mpz_garble::{Decode, DecodePrivate, Execute, Load, Prove, Verify, Vm};
 use mpz_share_conversion as ff;
 use point_addition as pa;
+use tls_client_async::ProverEvent;
 use tlsn_stream_cipher as stream_cipher;
 use tlsn_universal_hash as universal_hash;
 
@@ -10,6 +11,7 @@ use aead::Aead;
 use hmac_sha256::Prf;
 use ke::KeyExchange;
 
+use tokio::sync::mpsc::UnboundedSender;
 use utils_aio::mux::MuxChannel;
 
 use crate::{config::MpcTlsCommonConfig, MpcTlsError, TlsRole};
@@ -34,6 +36,7 @@ pub async fn setup_components<
     p256_send: PS,
     p256_recv: PR,
     gf: GF,
+    tx: UnboundedSender<ProverEvent>,
 ) -> Result<
     (
         Box<dyn KeyExchange + Send>,
@@ -109,6 +112,7 @@ where
             .unwrap(),
         vm.new_thread_pool("encrypter/stream_cipher", config.num_threads())
             .await?,
+        tx.clone(),
     );
 
     let ghash = universal_hash::ghash::Ghash::new(
@@ -150,6 +154,7 @@ where
             .unwrap(),
         vm.new_thread_pool("decrypter/stream_cipher", config.num_threads())
             .await?,
+        tx.clone(),
     );
 
     let ghash = universal_hash::ghash::Ghash::new(

@@ -223,6 +223,8 @@ mod tests {
         Memory, Vm,
     };
     use rstest::*;
+    use tls_client_async::ProverEvent;
+    use tokio::sync::mpsc::UnboundedSender;
 
     async fn create_test_pair<C: CtrCircuit>(
         start_ctr: usize,
@@ -273,10 +275,13 @@ mod tests {
             .build()
             .unwrap();
 
-        let mut leader = MpcStreamCipher::<C, _>::new(leader_config, leader_thread_pool);
+        let (tx,mut rx ): (UnboundedSender<ProverEvent>, UnboundedReceiver<ProverEvent>) = mpsc::unbounded_channel();
+        // Create a new prover and set up the MPC backend.
+
+        let mut leader = MpcStreamCipher::<C, _>::new(leader_config, leader_thread_pool, tx.clone());
         leader.set_key(leader_key, leader_iv);
 
-        let mut follower = MpcStreamCipher::<C, _>::new(follower_config, follower_thread_pool);
+        let mut follower = MpcStreamCipher::<C, _>::new(follower_config, follower_thread_pool, tx.clone());
         follower.set_key(follower_key, follower_iv);
 
         ((leader, follower), (leader_vm, follower_vm))
