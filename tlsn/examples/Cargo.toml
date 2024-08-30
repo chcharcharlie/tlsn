@@ -13,6 +13,7 @@ tlsn-tls-client.workspace = true
 tlsn-tls-core.workspace = true
 tlsn-utils.workspace = true
 tlsn-verifier.workspace = true
+tlsn-tls-client-async.workspace = true
 
 elliptic-curve = {version = "0.13.5", features = ["pkcs8"]}
 p256 = {workspace = true, features = ["ecdsa"]}

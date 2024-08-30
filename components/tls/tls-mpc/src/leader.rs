@@ -28,6 +28,9 @@ use tls_core::{
     },
     suites::SupportedCipherSuite,
 };
+use tls_client_async::ProverEvent;
+
+use tokio::sync::mpsc::UnboundedSender;
 
 use crate::{
     error::Kind,

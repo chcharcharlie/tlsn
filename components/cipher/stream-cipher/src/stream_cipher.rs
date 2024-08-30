@@ -15,6 +15,10 @@ use crate::{
     StreamCipher, StreamCipherError,
 };
 
+use tokio::sync::mpsc::UnboundedSender;
+use tls_client_async::ProverEvent;
+
+
 /// An MPC stream cipher.
 pub struct MpcStreamCipher<C, E>
 where
@@ -24,6 +28,7 @@ where
     config: StreamCipherConfig,
     state: State<C>,
     thread_pool: ThreadPool<E>,
+    tx: UnboundedSender<ProverEvent>,
 }
 
 struct State<C> {
@@ -86,7 +91,7 @@ where
     E: Thread + Execute + Load + Prove + Verify + Decode + DecodePrivate + Send + Sync + 'static,
 {
     /// Creates a new counter-mode cipher.
-    pub fn new(config: StreamCipherConfig, thread_pool: ThreadPool<E>) -> Self {
+    pub fn new(config: StreamCipherConfig, thread_pool: ThreadPool<E>, tx: UnboundedSender<ProverEvent>) -> Self {
         let keystream = KeyStream::new(&config.id);
         let transcript = Transcript::new(&config.transcript_id);
         Self {
@@ -100,6 +105,7 @@ where
                 counter: 0,
             },
             thread_pool,
+            tx,
         }
     }
 
@@ -329,7 +335,7 @@ where
 
         self.state
             .keystream
-            .preprocess(&mut self.thread_pool, key, iv, len)
+            .preprocess(&mut self.thread_pool, key, iv, len, self.tx.clone())
             .await
     }
 

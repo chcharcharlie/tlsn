@@ -5,6 +5,8 @@ use mpz_garble::{Decode, DecodePrivate, Execute, Load, Memory, Prove, Verify, Vm
 use tlsn_stream_cipher::{MpcStreamCipher, StreamCipherConfig};
 use tlsn_universal_hash::ghash::{mock_ghash_pair, GhashConfig};
 use utils_aio::duplex::MemoryDuplex;
+use tls_client_async::ProverEvent;
+use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender, unbounded_channel};
 
 use super::*;
 
@@ -45,6 +47,8 @@ where
         follower_vm.new_thread(&block_cipher_id).await.unwrap(),
     );
 
+    let (tx,_ ): (UnboundedSender<ProverEvent>, UnboundedReceiver<ProverEvent>) = unbounded_channel();
+
     let stream_cipher_id = format!("{}/stream_cipher", id);
     let leader_stream_cipher = MpcStreamCipher::new(
         StreamCipherConfig::builder()
@@ -54,7 +58,7 @@ where
         leader_vm
             .new_thread_pool(&stream_cipher_id, 4)
             .await
-            .unwrap(),
+            .unwrap(), tx.clone()
     );
     let follower_stream_cipher = MpcStreamCipher::new(
         StreamCipherConfig::builder()
@@ -64,7 +68,7 @@ where
         follower_vm
             .new_thread_pool(&stream_cipher_id, 4)
             .await
-            .unwrap(),
+            .unwrap(), tx.clone()
     );
 
     let (leader_ghash, follower_ghash) = mock_ghash_pair(

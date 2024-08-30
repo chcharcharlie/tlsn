@@ -25,6 +25,7 @@ tracing = [
 tlsn-block-cipher = { path = "../cipher/block-cipher" }
 tlsn-stream-cipher = { path = "../cipher/stream-cipher" }
 tlsn-universal-hash = { path = "../universal-hash" }
+tlsn-tls-client-async = { path = "../tls/tls-client-async" }
 mpz-core = { git = "https://github.com/privacy-scaling-explorations/mpz", rev = "9f7403b" }
 mpz-garble = { git = "https://github.com/privacy-scaling-explorations/mpz", rev = "9f7403b" }
 tlsn-utils-aio = { git = "https://github.com/tlsnotary/tlsn-utils", rev = "51f313d" }
@@ -35,6 +36,7 @@ thiserror = "1"
 futures = "0.3"
 serde = "1"
 tracing = { version = "0.1", optional = true }
+tokio = "1"
 
 [dev-dependencies]
 tokio = { version = "1", features = ["macros", "rt", "rt-multi-thread"] }

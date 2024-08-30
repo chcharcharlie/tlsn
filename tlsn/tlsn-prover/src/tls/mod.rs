@@ -28,7 +28,7 @@ use mpz_ot::{
     actor::kos::{ReceiverActor, SenderActor, SharedReceiver, SharedSender},
     chou_orlandi, kos,
 };
-use tokio::sync::mpsc;
+use tokio::sync::mpsc::{self, UnboundedSender};
 use mpz_share_conversion as ff;
 use rand::Rng;
 use state::{Notarize, Prove};
@@ -85,7 +85,7 @@ impl Prover<state::Initialized> {
             fut: Box::pin(async move { mux.run().await.map_err(ProverError::from) }.fuse()),
         };
 
-        let mpc_setup_fut = setup_mpc_backend(&self.config, mux_ctrl.clone());
+        let mpc_setup_fut = setup_mpc_backend(&self.config, mux_ctrl.clone(), self.tx.clone());
         let (mpc_tls, vm, _, gf2, ot_fut) = futures::select! {
             res = mpc_setup_fut.fuse() => res?,
             _ = (&mut mux_fut).fuse() => return Err(std::io::Error::from(std::io::ErrorKind::UnexpectedEof))?,
@@ -253,6 +253,7 @@ impl Prover<state::Closed> {
 async fn setup_mpc_backend(
     config: &ProverConfig,
     mut mux: MuxControl,
+    tx: UnboundedSender<ProverEvent>,
 ) -> Result<
     (
         MpcTlsLeader,
@@ -351,6 +352,7 @@ async fn setup_mpc_backend(
         p256_recv,
         gf2.handle()
             .map_err(|e| ProverError::MpcError(Box::new(e)))?,
+        tx.clone(),
     )
     .await
     .map_err(|e| ProverError::MpcError(Box::new(e)))?;
